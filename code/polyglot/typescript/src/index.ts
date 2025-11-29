@@ -177,22 +177,35 @@ function buildMessages(
 ): { role: string; content: string }[] {
   const placeholders = {
     query: sample.text,
+    text: sample.text,  // Also support {{text}} placeholder
     intents: labels.join(", "),
   };
 
   const promptTemplate = policyConfig.prompt_template;
   if (promptTemplate) {
+    // Handle string prompt_template (simple format used in testing)
+    if (typeof promptTemplate === "string") {
+      const renderedPrompt = renderTemplate(promptTemplate, placeholders);
+      return [
+        { role: "system", content: renderedPrompt },
+        { role: "user", content: `Query: ${sample.text}\nClassify this query using the classify tool.` },
+      ];
+    }
+
+    // Handle object prompt_template with sections
     const sections =
       promptTemplate.prompt_sections || promptTemplate.sections || [];
-    const sorted = [...sections].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    if (sections.length > 0) {
+      const sorted = [...sections].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 
-    return sorted.map((section) => {
-      const template = section.content || section.pattern || "";
-      return {
-        role: section.role,
-        content: renderTemplate(template, placeholders),
-      };
-    });
+      return sorted.map((section) => {
+        const template = section.content || section.pattern || "";
+        return {
+          role: section.role,
+          content: renderTemplate(template, placeholders),
+        };
+      });
+    }
   }
 
   // Default messages

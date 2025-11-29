@@ -106,6 +106,7 @@ impl Dataset {
 
 #[derive(Debug, Deserialize)]
 struct RolloutRequest {
+    #[serde(default)]
     run_id: String,
     env: EnvSpec,
     policy: PolicySpec,
