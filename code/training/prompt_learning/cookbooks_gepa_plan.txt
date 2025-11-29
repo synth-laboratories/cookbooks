@@ -1,0 +1,257 @@
+# Comprehensive End-to-End GEPA and MIPRO Examples Plan
+
+## Goal
+Create two pedagogical, comprehensive end-to-end examples for prompt optimization under `cookbooks/training/prompt_learning/`:
+
+1. **GEPA Interactive Example** - Banking77 task with gpt-oss-20b
+2. **MIPRO Interactive Example** - Banking77 task with gpt-oss-20b
+
+Each example should:
+- Include interactive shell scripts that run the entire process end-to-end
+- Explain each step with prompts that users approve before proceeding
+- Include README files with actual commands AND their concrete results/logs
+- Serve as reference implementations for users learning prompt optimization
+- Use the same task (Banking77) and model (gpt-oss-20b) for easy comparison
+
+## Reference Implementation
+Found interactive bash script at `/Users/joshpurtell/Documents/GitHub/research/walkthroughs/gepa/deployed/commands.sh`
+
+**Key Features:**
+- Uses `prompt_step()` function to explain each step with educational context
+- Uses `run_command()` function to execute commands with output
+- Uses color coding (GREEN, BLUE, YELLOW) for better UX
+- Waits for user confirmation before proceeding ("Press Enter to continue")
+- Shows actual command output
+- Handles errors gracefully with helpful messages
+- Creates working directory structure (`/tmp/gepa_walkthrough/`)
+- Includes cleanup and next steps guidance
+
+**Script Structure:**
+1. Step 1: Generate ENVIRONMENT_API_KEY (with backend registration)
+2. Step 2: Deploy Cloudflare Tunnel (kills existing processes, starts task app)
+3. Step 3: Extract Tunnel URL (reads from env file)
+4. Step 4: Create GEPA Config (updates base config with tunnel URL)
+5. Step 5: Run GEPA Training (submits job, polls for completion)
+
+**Full script available at:** `/Users/joshpurtell/Documents/GitHub/research/walkthroughs/gepa/deployed/commands.sh`
+
+## Current Structure
+```
+cookbooks/code/training/prompt_learning/
+├── README.md                 # Basic overview (needs enhancement)
+├── cli/
+│   ├── run_gepa.sh           # Simple CLI runner (needs interactive version)
+│   ├── run_mipro.sh           # Simple CLI runner (needs interactive version)
+│   └── .env.example           # Environment template
+├── configs/
+│   ├── gepa.toml             # GEPA configuration
+│   └── mipro.toml            # MIPRO configuration
+├── sdk/
+│   ├── basic.py              # Basic SDK example
+│   ├── advanced.py           # Advanced features
+│   └── in_process.py         # In-process task app example
+└── task_app.py               # Task app (Banking77)
+```
+
+## Proposed Structure
+```
+cookbooks/code/training/prompt_learning/
+├── README.md                 # Enhanced with actual command outputs, comparison guide
+├── gepa/
+│   ├── README.md             # GEPA-specific guide with actual logs
+│   ├── run_interactive.sh     # Interactive end-to-end script (Banking77 + gpt-oss-20b)
+│   ├── config.toml           # GEPA config: Banking77 task, gpt-oss-20b model
+│   ├── expected_outputs/     # Directory with actual command outputs
+│   │   ├── step1_env_setup.txt
+│   │   ├── step2_task_app_start.txt
+│   │   ├── step3_submit_job.txt
+│   │   ├── step4_polling.txt
+│   │   └── step5_results.txt
+│   └── results_example/      # Example results directory structure
+├── mipro/
+│   ├── README.md             # MIPRO-specific guide with actual logs
+│   ├── run_interactive.sh     # Interactive end-to-end script (Banking77 + gpt-oss-20b)
+│   ├── config.toml           # MIPRO config: Banking77 task, gpt-oss-20b model
+│   ├── expected_outputs/     # Directory with actual command outputs
+│   │   ├── step1_env_setup.txt
+│   │   ├── step2_task_app_start.txt
+│   │   ├── step3_submit_job.txt
+│   │   ├── step4_polling.txt
+│   │   └── step5_results.txt
+│   └── results_example/      # Example results directory structure
+├── cli/                      # Keep simple CLI runners for non-interactive use
+│   ├── run_gepa.sh
+│   ├── run_mipro.sh
+│   └── .env.example
+├── configs/                   # Keep base configs
+│   ├── gepa.toml
+│   └── mipro.toml
+├── sdk/                      # Keep SDK examples
+│   ├── basic.py
+│   ├── advanced.py
+│   └── in_process.py
+└── task_app.py               # Shared task app
+```
+
+## Implementation Steps
+
+### Phase 1: GEPA Interactive Script
+1. **Create `gepa/run_interactive.sh`**
+   - Based on `synth-research/walkthroughs/gepa/deployed/commands.sh` pattern
+   - Include `prompt_step()` function for pedagogical explanations
+   - Include `run_command()` function for executing commands
+   - Steps:
+     a. Environment setup (check API keys, generate ENVIRONMENT_API_KEY if needed)
+     b. Task app startup (in-process or tunnel deployment)
+     c. Config file creation/validation
+     d. Job submission
+     e. Polling with progress updates
+     f. Results extraction and display
+     g. Cleanup
+
+2. **Create `gepa/config.toml`**
+   - Task: Banking77 (intent classification)
+   - Model: gpt-oss-20b
+   - Optimized for examples (smaller rollout budgets for faster runs)
+   - Well-commented explaining each section
+   - Include both in-process and deployed task app options
+
+3. **Run actual example and capture outputs**
+   - Execute `run_interactive.sh` end-to-end
+   - Capture actual command outputs at each step
+   - Save to `gepa/expected_outputs/` directory
+   - Include both success and error scenarios
+
+4. **Create `gepa/README.md`**
+   - Overview of GEPA algorithm
+   - Prerequisites
+   - Step-by-step walkthrough with:
+     - Commands to run
+     - Expected outputs (from captured logs)
+     - Explanations of what's happening
+   - Troubleshooting section
+   - Links to deeper documentation
+
+### Phase 2: MIPRO Interactive Script
+1. **Create `mipro/run_interactive.sh`**
+   - Similar structure to GEPA script
+   - Adapt for MIPRO-specific steps:
+     - Bootstrap phase explanation
+     - Meta-model configuration
+     - TPE optimization explanation
+     - Mini-batch evaluation
+
+2. **Create `mipro/config.toml`**
+   - Task: Banking77 (intent classification)
+   - Model: gpt-oss-20b
+   - Optimized for examples
+   - Well-commented
+   - Include MIPRO-specific parameters (bootstrap, meta-model, TPE)
+
+3. **Run actual example and capture outputs**
+   - Execute `run_interactive.sh` end-to-end
+   - Capture outputs to `mipro/expected_outputs/`
+
+4. **Create `mipro/README.md`**
+   - Similar structure to GEPA README
+   - MIPRO-specific explanations
+   - Comparison with GEPA when appropriate
+
+### Phase 3: Enhanced Main README
+1. **Update `prompt_learning/README.md`**
+   - Add section pointing to `gepa/` and `mipro/` directories
+   - Include quick comparison table (both use Banking77 + gpt-oss-20b for fair comparison)
+   - Add links to expected outputs
+   - Include "Which algorithm should I use?" guide
+   - Highlight that both examples use the same task/model for easy comparison
+
+### Phase 4: Example Results
+1. **Create example results directories**
+   - `gepa/results_example/` with actual optimization results
+   - `mipro/results_example/` with actual optimization results
+   - Include:
+     - Best prompt found
+     - Score progression
+     - Job metadata
+     - Artifacts
+
+## Key Features of Interactive Scripts
+
+### Educational Prompts
+Each step should include:
+- **What**: What we're doing in this step
+- **Why**: Why this step is necessary
+- **How**: How the command works
+- **Expected**: What output to expect
+
+Example:
+```bash
+prompt_step \
+  "Step 1: Environment Setup" \
+  "We need to verify your API keys are set up correctly. This includes:
+   - SYNTH_API_KEY: Authenticates with Synth backend
+   - ENVIRONMENT_API_KEY: Authenticates task app (will be generated if missing)
+   - OPENAI_API_KEY or GROQ_API_KEY: For LLM inference
+   
+   We'll check each key and generate any missing ones."
+```
+
+### Command Execution
+- Show the exact command being run
+- Display actual output
+- Handle errors gracefully with helpful messages
+- Provide next steps on success
+
+### Progress Tracking
+- Show job status updates
+- Display score improvements
+- Show remaining time/iterations
+- Provide cancellation instructions
+
+### Results Display
+- Show best prompt found
+- Display score progression
+- Show where results are saved
+- Provide next steps for using optimized prompts
+
+## Content Requirements
+
+### README Files Must Include:
+1. **Overview**: What the algorithm does
+2. **Prerequisites**: Required tools and API keys
+3. **Quick Start**: Single command to run everything
+4. **Step-by-Step Guide**: 
+   - Each step with explanation
+   - Actual command to run
+   - Expected output (from captured logs)
+   - What happens behind the scenes
+5. **Understanding Results**: How to interpret outputs
+6. **Troubleshooting**: Common issues and solutions
+7. **Next Steps**: How to use optimized prompts in production
+
+### Expected Outputs Must Include:
+1. **Full command output**: Not truncated, actual logs
+2. **Success scenarios**: Normal execution flow
+3. **Error scenarios**: Common errors and their resolutions
+4. **Progress updates**: What users see during polling
+5. **Final results**: What the completed optimization looks like
+
+## Testing Requirements
+- Scripts must work on macOS and Linux
+- Handle missing dependencies gracefully
+- Provide clear error messages
+- Support both in-process and deployed task apps
+- Work with both local and production backends
+
+## Timeline
+1. **Week 1**: GEPA interactive script + README + outputs
+2. **Week 2**: MIPRO interactive script + README + outputs
+3. **Week 3**: Enhanced main README + polish + testing
+
+## Success Criteria
+- Users can run end-to-end examples without reading external docs
+- Actual command outputs match what users see
+- Scripts are educational, not just functional
+- Examples work reliably across environments
+- Results are reproducible
+

@@ -1,0 +1,147 @@
+# GEPA (Genetic Evolution of Prompt Architectures) Configuration
+# Banking77 Intent Classification with gpt-oss-20b via Groq
+#
+# This configuration is optimized for the interactive walkthrough.
+# The task_app_url will be overridden by the in-process script with the tunnel URL.
+#
+# GEPA Algorithm Overview:
+# ─────────────────────────
+# GEPA uses genetic algorithms to evolve prompt structures:
+#
+# 1. INITIALIZATION: Create initial population of prompts
+# 2. EVALUATION: Test each prompt on task samples
+# 3. SELECTION: Keep top-performing prompts (elites)
+# 4. CROSSOVER: Combine sections from two parent prompts
+# 5. MUTATION: LLM-guided modifications to prompt components
+# 6. REPEAT: Continue for num_generations
+
+[prompt_learning]
+algorithm = "gepa"
+# task_app_url will be set by the in-process script to the Cloudflare tunnel URL
+task_app_url = "http://localhost:8114"
+task_app_id = "banking77"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Initial Prompt Pattern
+# ─────────────────────────────────────────────────────────────────────────────
+# This is the starting point for evolution. GEPA will mutate and crossover
+# variations of this prompt to find better performing versions.
+#
+# Pattern-based prompts use {wildcards} that get filled at runtime by the task app.
+
+[prompt_learning.initial_prompt]
+id = "banking77_pattern"
+name = "Banking77 Classification Pattern"
+
+[[prompt_learning.initial_prompt.messages]]
+role = "system"
+pattern = "You are an expert banking assistant. \n\n**Available Banking Intents:**\n{available_intents}\n\n**Task:**\nCall the `banking77_classify` tool with the `intent` parameter set to ONE of the intent labels listed above that best matches the customer query. The intent must be an exact match from the list."
+order = 0
+
+[[prompt_learning.initial_prompt.messages]]
+role = "user"
+pattern = "Customer Query: {query}\n\nClassify this query by calling the tool with the correct intent label from the list above."
+order = 1
+
+[prompt_learning.initial_prompt.wildcards]
+query = "REQUIRED"  # Will be provided by task app at runtime
+available_intents = "OPTIONAL"  # Intent list (numbered 1-77) will be provided by task app
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Policy Configuration (Model, Provider, etc.)
+# ─────────────────────────────────────────────────────────────────────────────
+
+[prompt_learning.policy]
+# Inference mode: "synth_hosted" uses Synth's inference infrastructure
+inference_mode = "synth_hosted"
+
+# Model for generating responses during evaluation
+# Using Groq for fast inference
+model = "openai/gpt-oss-20b"
+provider = "groq"
+
+# Generation settings
+temperature = 0.0
+max_completion_tokens = 512
+
+# Policy name for task app routing
+policy_name = "banking77-classifier"
+
+# Training split config
+[prompt_learning.env_config]
+pool = "train"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GEPA-Specific Configuration
+# ─────────────────────────────────────────────────────────────────────────────
+
+[prompt_learning.gepa]
+env_name = "banking77"
+proposer_type = "dspy"  # Uses DSPy-style prompt proposals
+
+# Rollout configuration (how prompts are evaluated)
+[prompt_learning.gepa.rollout]
+# Total prompt evaluation budget
+# Higher = more thorough optimization, longer runtime
+# Recommended: 50-100 for walkthroughs, 500-2000 for production
+budget = 50
+
+# Maximum concurrent evaluations
+max_concurrent = 10
+
+# Mini-batch size for evaluation
+minibatch_size = 10
+
+# Evaluation configuration (train/validation split)
+[prompt_learning.gepa.evaluation]
+# Training seeds (samples used for optimization)
+seeds = [50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69]
+
+# Validation seeds (held-out samples for final evaluation)
+validation_seeds = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+validation_pool = "validation"
+
+# Number of top prompts to evaluate on validation set
+validation_top_k = 2
+
+# Mutation configuration (LLM-guided mutations)
+[prompt_learning.gepa.mutation]
+# Probability of mutating each prompt component
+rate = 0.3
+
+# LLM for generating mutations (using Groq for fast mutations)
+llm_model = "openai/gpt-oss-120b"
+llm_provider = "groq"
+llm_inference_url = "https://api.groq.com/openai/v1"
+
+# Population configuration (evolution parameters)
+[prompt_learning.gepa.population]
+# Initial number of prompts in population
+initial_size = 4
+
+# Number of generations to evolve
+num_generations = 2
+
+# Number of children to generate per generation
+children_per_generation = 4
+
+# Probability of combining two parent prompts
+crossover_rate = 0.5
+
+# Selection pressure (higher = more selective)
+selection_pressure = 1.0
+
+# Early stopping: stop if no improvement for this many generations
+patience_generations = 2
+
+# Archive configuration (Pareto archive for multi-objective)
+[prompt_learning.gepa.archive]
+size = 20
+pareto_set_size = 10
+pareto_eps = 1e-6
+feedback_fraction = 0.5
+
+# Token configuration
+[prompt_learning.gepa.token]
+counting_model = "gpt-4"
+enforce_pattern_limit = true

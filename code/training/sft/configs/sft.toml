@@ -1,0 +1,49 @@
+# Banking77 Supervised Fine-Tuning Configuration
+#
+# This config trains a model to classify banking customer intents
+# from the Banking77 dataset.
+
+[algorithm]
+# Type: "offline" for SFT (not online/RL)
+type = "offline"
+# Variety: "fft" (full fine-tune) or "lora"
+variety = "fft"
+# Method: always "sft" for supervised fine-tuning
+method = "sft"
+
+[job]
+# Base model to fine-tune
+model = "Qwen/Qwen3-0.6B"
+# Note: Dataset path is provided programmatically by the SDK scripts
+# which download Banking77 from HuggingFace and convert to JSONL
+# Job suffix for identification
+suffix = "banking77-intent"
+
+[compute]
+# GPU type: "H100", "A100", etc.
+gpu_type = "H100"
+# Number of GPUs
+gpu_count = 1
+
+[hyperparameters]
+# Number of training epochs
+n_epochs = 3
+# Learning rate
+learning_rate = 1e-5
+# Batch size per device
+batch_size = 4
+# Warmup ratio (fraction of steps for LR warmup)
+warmup_ratio = 0.1
+# Weight decay for regularization
+weight_decay = 0.01
+# Gradient accumulation steps (effective batch = batch_size * this)
+gradient_accumulation_steps = 1
+# Maximum sequence length
+max_seq_length = 512
+
+# Optional: LoRA-specific settings (only used if variety = "lora")
+[hyperparameters.lora]
+r = 16
+alpha = 32
+dropout = 0.1
+target_modules = ["q_proj", "v_proj"]

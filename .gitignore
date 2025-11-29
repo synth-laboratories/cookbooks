@@ -1,0 +1,168 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+.venv/
+venv/
+ENV/
+env/
+.ENV/
+.env/
+
+# Environment files
+.env*
+!.env.example
+.env.tunnel*
+.env.tmp
+*.backup.*
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+logs/
+*.log.*
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+*.db-shm
+*.db-wal
+
+# Test coverage
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.tox/
+.hypothesis/
+
+# Jupyter Notebooks
+.ipynb_checkpoints
+*.ipynb
+
+# Temporary files
+*.tmp
+*.temp
+temp/
+tmp/
+*.bak
+*.swp
+*.swo
+
+# Results and outputs
+results/
+outputs/
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.pdf
+!**/README*.png
+!**/docs/**/*.png
+!**/docs/**/*.jpg
+
+# Data files (large datasets)
+*.jsonl
+*.csv
+*.parquet
+*.h5
+*.hdf5
+data/
+datasets/
+ft_data/
+
+# Traces
+traces/
+*.trace
+*.trace.json
+
+# Lock files (keep uv.lock but ignore others)
+poetry.lock
+Pipfile.lock
+package-lock.json
+
+# OS files
+Thumbs.db
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Modal
+.modal/
+
+# Cloudflare
+.cloudflared/
+
+# Coverage
+coverage.json
+coverage.xml
+*.cover
+
+# MyPy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre
+.pyre/
+.pytype/
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath
+*.sage.py
+
+# Spyder
+.spyderproject
+.spyproject
+
+# Rope
+.ropeproject
+
+# mkdocs
+/site
+
+# Specific cookbooks junk
+dev/qwen_vl/temp/
+dev/vlm/temp/
+dev/**/temp/
+dev/**/results/
+dev/**/logs/
+dev/**/*.log
+code/**/.venv/
+code/**/__pycache__/
+code/**/node_modules/
+
+
+

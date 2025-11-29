@@ -1,0 +1,8 @@
+# Build artifacts
+target/
+zig-out/
+.zig-cache/
+dist/
+node_modules/
+synth-task-app
+*.log

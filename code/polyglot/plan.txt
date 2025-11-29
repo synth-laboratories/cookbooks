@@ -1,0 +1,1373 @@
+================================================================================
+OPENAPI CONTRACT FOR TASK APPS
+================================================================================
+
+Goal: A coding agent working in Rust/Go/TS can implement a Task App that
+integrates with Synth prompt optimization, without writing any Python.
+
+================================================================================
+PART 1: THE AGENT'S JOURNEY
+================================================================================
+
+Scenario: Agent is working on a Rust project, user wants prompt optimization.
+
+STEP 1: DISCOVER
+----------------
+Agent learns:
+- Synth optimizes prompts via MIPRO/GEPA algorithms
+- Optimizers need a "Task App" - an HTTP service that evaluates prompts
+- Task App can be in ANY language, just needs to implement the contract
+
+STEP 2: GET THE CONTRACT
+------------------------
+Contract must be accessible WITHOUT installing Python package:
+
+  curl https://raw.githubusercontent.com/synth-ai/synth-ai/main/synth_ai/contracts/task_app.yaml
+
+Or via docs:
+
+  https://docs.usesynth.ai/contracts/task_app.yaml
+
+Agent downloads the OpenAPI spec.
+
+STEP 3: UNDERSTAND THE CONTRACT
+-------------------------------
+The spec must explain not just WHAT to implement, but HOW it works:
+
+  1. Optimizer calls POST /rollout with a RolloutRequest
+  2. Request contains:
+     - env.seed: Index into YOUR dataset (you provide the data)
+     - policy.config.prompt_template: The prompt being evaluated
+     - policy.config.inference_url: Base URL for LLM calls (append /chat/completions)
+  3. Your service must:
+     - Load the task instance at that seed
+     - Render the prompt template with your data
+     - Call the LLM via inference_url + /chat/completions
+     - Compare LLM output to ground truth
+     - Return reward (1.0 correct, 0.0 incorrect)
+  4. Optimizer uses the reward to guide search
+
+This is the BEHAVIORAL CONTRACT - must be documented inline.
+
+STEP 4: IMPLEMENT
+-----------------
+Agent implements in Rust:
+- HTTP server (axum, actix, etc.)
+- Required: /health, /rollout
+- Optional: /info (task metadata)
+- Dataset loading, prompt rendering, LLM calling, reward computation
+
+Optional: Use openapi-generator for type scaffolding
+  openapi-generator generate -i task_app.yaml -g rust -o ./types
+
+STEP 5: TEST LOCALLY
+--------------------
+  cargo run --release
+  curl http://localhost:8001/health
+  curl -X POST http://localhost:8001/rollout -d '{"run_id":"test",...}'
+
+STEP 6: CONNECT TO OPTIMIZER
+----------------------------
+Two options:
+
+A) Use synth-ai CLI (requires Python):
+   uv tool install synth-ai
+   cloudflared tunnel --url http://localhost:8001
+   synth prompt-learning run \
+     --task-app-url https://xxx.trycloudflare.com \
+     --algorithm mipro \
+     --config config.toml
+
+B) Call Synth API directly (no Python needed):
+   curl -X POST https://agent-learning.onrender.com/api/prompt-learning/online/jobs \
+     -H "Authorization: Bearer $SYNTH_API_KEY" \
+     -d '{
+       "algorithm": "mipro",
+       "config_body": {
+         "prompt_learning": {
+           "task_app_url": "https://xxx.trycloudflare.com",
+           ...
+         }
+       }
+     }'
+
+Option B means the agent NEVER needs Python - pure HTTP.
+
+
+================================================================================
+PART 2: CONTRACT REQUIREMENTS
+================================================================================
+
+The OpenAPI spec must include:
+
+1. HTTP CONTRACT
+   - Endpoints, methods, auth
+   - Request/response schemas
+   - Error responses (wired into paths!)
+
+2. BEHAVIORAL CONTRACT (in description fields)
+   - What /rollout should DO, step by step
+   - How to interpret prompt_template
+   - How to compute reward
+   - What inference_url is for (BASE URL - append /chat/completions)
+
+3. INTEGRATION GUIDE (in info.description)
+   - How to run the optimizer
+   - How to set up Cloudflare tunnel
+   - Example config
+
+
+================================================================================
+PART 3: THE OPENAPI SPEC
+================================================================================
+
+Location: synth_ai/contracts/task_app.yaml
+
+```yaml
+openapi: 3.1.0
+info:
+  title: Synth Task App Contract
+  version: 1.0.0
+  description: |
+    # Task App Contract
+
+    Task Apps are HTTP services that evaluate prompts for Synth's MIPRO and
+    GEPA optimizers. Implement this contract in any language.
+
+    ## How It Works
+
+    ```
+    ┌─────────────────┐         ┌──────────────────┐
+    │  MIPRO/GEPA     │  HTTP   │  Your Task App   │
+    │  Optimizer      │ ──────> │  (any language)  │
+    │                 │         │                  │
+    │  Proposes new   │         │  Evaluates the   │
+    │  prompts        │ <────── │  prompt, returns │
+    │                 │  reward │  reward          │
+    └─────────────────┘         └──────────────────┘
+    ```
+
+    1. Optimizer generates candidate prompts
+    2. Calls your `/rollout` endpoint with the prompt
+    3. You evaluate it against your data and return a reward
+    4. Optimizer uses rewards to find better prompts
+
+    ## Required Endpoints
+
+    - `GET /health` - Health check (unauthenticated OK)
+    - `POST /rollout` - Evaluate a prompt (authenticated)
+
+    ## Optional Endpoints
+
+    - `GET /info` - Task metadata (authenticated)
+
+    ## Quick Start
+
+    1. Implement `/health` and `/rollout`
+    2. Run locally: `./your-task-app --port 8001`
+    3. Expose via tunnel:
+       ```bash
+       cloudflared tunnel --url http://localhost:8001
+       # Returns URL like: https://random-words.trycloudflare.com
+       ```
+    4. Start optimization (see below)
+
+    ## Running the Optimizer
+
+    **Option A - Via CLI (requires Python):**
+    ```bash
+    uv tool install synth-ai
+    synth prompt-learning run \
+      --task-app-url https://your-tunnel.trycloudflare.com \
+      --task-app-api-key your-env-key \
+      --algorithm mipro
+    ```
+
+    **Option B - Via API (no Python needed):**
+    ```bash
+    curl -X POST https://agent-learning.onrender.com/api/prompt-learning/online/jobs \
+      -H "Authorization: Bearer $SYNTH_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "algorithm": "mipro",
+        "config_body": {
+          "prompt_learning": {
+            "task_app_url": "https://your-tunnel.trycloudflare.com",
+            "task_app_api_key": "your-env-key"
+          }
+        }
+      }'
+    ```
+
+    ## Authentication
+
+    The optimizer sends `X-API-Key` header to `/rollout` (and `/info` if implemented).
+    Match this against your `ENVIRONMENT_API_KEY` environment variable.
+
+    `/health` MAY be unauthenticated for simpler "is the tunnel alive?" checks.
+
+servers:
+  - url: http://localhost:8001
+    description: Local development
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: |
+        API key for authentication. The optimizer sends this if
+        `task_app_api_key` is configured. Match against your
+        `ENVIRONMENT_API_KEY` environment variable.
+
+  schemas:
+    #---------------------------------------------------------------------------
+    # REQUEST
+    #---------------------------------------------------------------------------
+    RolloutRequest:
+      type: object
+      description: |
+        Request from optimizer to evaluate a prompt.
+
+        ## What Your Service Should Do
+
+        1. Extract `seed` from `env.seed` (or `env.config.seed`)
+        2. Load your dataset sample at index: `sample = dataset[seed % len(dataset)]`
+        3. Get the prompt from `policy.config.prompt_template.sections`
+        4. Sort sections by `order` field
+        5. Render each section: replace `{placeholders}` with your sample data
+        6. POST to `policy.config.inference_url` + `/chat/completions`
+        7. Parse the LLM response (tool_calls or content)
+        8. Compare prediction to your ground truth
+        9. Return RolloutResponse with reward in `metrics.mean_return`
+      required: [run_id, env, policy, mode]
+      properties:
+        run_id:
+          type: string
+          description: Unique ID for this rollout - echo it back in response
+
+        env:
+          $ref: '#/components/schemas/RolloutEnvSpec'
+
+        policy:
+          $ref: '#/components/schemas/RolloutPolicySpec'
+
+        ops:
+          type: array
+          items: {}
+          default: []
+          description: Task-specific operations (can be ignored for most tasks)
+
+        record:
+          $ref: '#/components/schemas/RolloutRecordConfig'
+
+        on_done:
+          type: string
+          default: "reset"
+
+        safety:
+          $ref: '#/components/schemas/RolloutSafetyConfig'
+
+        training_session_id:
+          type: string
+          nullable: true
+
+        synth_base_url:
+          type: string
+          nullable: true
+
+        mode:
+          type: string
+          enum: [rl, eval]
+          description: |
+            Rollout mode. Task Apps MAY ignore this field.
+            Synth uses `"eval"` for prompt optimization.
+
+      example:
+        run_id: "run_abc123"
+        env:
+          seed: 42
+          config:
+            split: "train"
+        policy:
+          policy_id: "policy_1"
+          config:
+            model: "gpt-4o-mini"
+            inference_url: "https://agent-learning.onrender.com/v1/trial-xyz"
+            temperature: 0.0
+            max_completion_tokens: 512
+            prompt_template:
+              sections:
+                - role: "system"
+                  content: "You are a banking intent classifier."
+                  order: 0
+                - role: "user"
+                  pattern: "Customer query: {query}\n\nClassify into one of: {intents}"
+                  order: 1
+        mode: "eval"
+
+    RolloutEnvSpec:
+      type: object
+      description: Environment/task specification
+      properties:
+        env_id:
+          type: string
+          nullable: true
+        env_name:
+          type: string
+          nullable: true
+        config:
+          type: object
+          additionalProperties: true
+          default: {}
+          description: |
+            Task-specific config. Common fields:
+            - `seed`: alternative location for dataset index
+            - `split`: "train" or "test"
+        seed:
+          type: integer
+          nullable: true
+          description: |
+            INDEX into your dataset. Load the sample at this position.
+            Use modulo: `index = seed % len(dataset)`
+
+    RolloutPolicySpec:
+      type: object
+      description: Policy (model + prompt) specification
+      properties:
+        policy_id:
+          type: string
+          nullable: true
+        policy_name:
+          type: string
+          nullable: true
+        config:
+          $ref: '#/components/schemas/PolicyConfig'
+
+    PolicyConfig:
+      type: object
+      description: Model and prompt configuration
+      properties:
+        model:
+          type: string
+          description: Model identifier
+          example: "gpt-4o-mini"
+
+        provider:
+          type: string
+          description: Provider name (informational)
+          example: "openai"
+
+        inference_url:
+          type: string
+          format: uri
+          description: |
+            BASE URL for LLM inference (WITHOUT `/chat/completions`).
+
+            This URL is provided by the optimizer. Route ALL LLM requests
+            through this URL - it handles API key injection, logging, and
+            cost tracking.
+
+            **Always append `/chat/completions` when making requests:**
+
+            ```
+            POST {inference_url}/chat/completions
+            Content-Type: application/json
+
+            {
+              "model": "gpt-4o-mini",
+              "messages": [...],
+              "tools": [...],
+              "tool_choice": "required"
+            }
+            ```
+          example: "https://agent-learning.onrender.com/v1/trial-xyz"
+
+        api_base:
+          type: string
+          format: uri
+          description: Alternative to inference_url (same semantics)
+
+        base_url:
+          type: string
+          format: uri
+          description: Alternative to inference_url (same semantics)
+
+        temperature:
+          type: number
+          default: 0.0
+
+        max_completion_tokens:
+          type: integer
+          default: 512
+
+        max_tokens:
+          type: integer
+          description: Alternative to max_completion_tokens
+
+        prompt_template:
+          $ref: '#/components/schemas/PromptTemplate'
+
+    PromptTemplate:
+      type: object
+      description: |
+        THE PROMPT BEING EVALUATED.
+
+        Contains message sections to send to the LLM.
+        Your job: render these with your sample data.
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        sections:
+          type: array
+          items:
+            $ref: '#/components/schemas/PromptSection'
+          description: |
+            Messages in the prompt. Sort by `order` before rendering.
+
+            For each section:
+            - Use `content` if it's static text
+            - Use `pattern` if it has `{placeholders}` to replace
+
+            Example:
+            ```
+            pattern: "Classify this query: {query}"
+            your_data: {"query": "How do I reset my PIN?"}
+            rendered: "Classify this query: How do I reset my PIN?"
+            ```
+        variables:
+          type: object
+          additionalProperties:
+            type: string
+        metadata:
+          type: object
+          description: Additional prompt metadata
+
+    PromptSection:
+      type: object
+      required: [role]
+      properties:
+        role:
+          type: string
+          enum: [system, user, assistant]
+        content:
+          type: string
+          description: Static content (mutually exclusive with pattern)
+        pattern:
+          type: string
+          description: Template with {placeholders} to replace
+        order:
+          type: integer
+          default: 0
+          description: Sort sections by this before rendering
+
+    RolloutRecordConfig:
+      type: object
+      properties:
+        trajectories:
+          type: boolean
+          default: true
+        logprobs:
+          type: boolean
+          default: false
+        return_trace:
+          type: boolean
+          default: false
+        trace_format:
+          type: string
+          enum: [compact, full, structured]
+          default: compact
+
+    RolloutSafetyConfig:
+      type: object
+      properties:
+        max_ops:
+          type: integer
+          default: 100000
+        max_time_s:
+          type: number
+          default: 3600.0
+
+    #---------------------------------------------------------------------------
+    # RESPONSE
+    #---------------------------------------------------------------------------
+    RolloutResponse:
+      type: object
+      description: |
+        Your response after evaluating the prompt.
+
+        THE KEY FIELD IS `metrics.mean_return` - this is the reward
+        that guides optimization. Higher = better prompt.
+      required: [run_id, trajectories, metrics]
+      properties:
+        run_id:
+          type: string
+          description: Echo the run_id from the request
+
+        trajectories:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/RolloutTrajectory'
+          description: |
+            Execution trace. Must contain at least one trajectory
+            with at least one step that includes a reward.
+
+        branches:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+          default: {}
+
+        metrics:
+          $ref: '#/components/schemas/RolloutMetrics'
+
+        aborted:
+          type: boolean
+          default: false
+
+        ops_executed:
+          type: integer
+          default: 0
+
+        trace_correlation_id:
+          type: string
+          nullable: true
+
+        trace:
+          type: object
+          nullable: true
+          description: Optional detailed trace for debugging
+
+        pipeline_metadata:
+          type: object
+          additionalProperties: true
+          default: {}
+
+      example:
+        run_id: "run_abc123"
+        trajectories:
+          - env_id: "banking77::train::42"
+            policy_id: "policy_1"
+            steps:
+              - obs:
+                  query: "How do I reset my PIN?"
+                  index: 42
+                tool_calls:
+                  - id: "call_1"
+                    type: "function"
+                    function:
+                      name: "classify"
+                      arguments: '{"intent": "change_pin"}'
+                reward: 1.0
+                done: true
+                info:
+                  expected: "change_pin"
+                  predicted: "change_pin"
+                  correct: true
+            length: 1
+            inference_url: "https://agent-learning.onrender.com/v1/trial-xyz"
+        metrics:
+          episode_returns: [1.0]
+          mean_return: 1.0
+          num_steps: 1
+          num_episodes: 1
+          outcome_score: 1.0
+        aborted: false
+        ops_executed: 1
+
+    RolloutTrajectory:
+      type: object
+      required: [env_id, policy_id, steps, length, inference_url]
+      properties:
+        env_id:
+          type: string
+          description: Identifier for this task instance
+          example: "my_task::train::42"
+
+        policy_id:
+          type: string
+          description: Echo policy_id or policy_name from request
+
+        steps:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/RolloutStep'
+          description: |
+            Execution steps. Must contain at least one step with a reward.
+
+        final:
+          type: object
+          additionalProperties: true
+          nullable: true
+
+        length:
+          type: integer
+          minimum: 1
+
+        inference_url:
+          type: string
+          description: The inference URL used for LLM calls
+
+        decision_samples:
+          type: array
+          items: {}
+          nullable: true
+
+    RolloutStep:
+      type: object
+      required: [obs, tool_calls, reward, done]
+      properties:
+        obs:
+          type: object
+          additionalProperties: true
+          description: |
+            The input data for this step. Include your sample data
+            here for debugging/logging purposes.
+
+        tool_calls:
+          type: array
+          items:
+            $ref: '#/components/schemas/ToolCall'
+          description: Tool calls from LLM response (can be empty if using content)
+
+        reward:
+          type: number
+          description: |
+            THE REWARD FOR THIS STEP. This is required.
+
+            For classification tasks:
+            - 1.0 = prediction matches ground truth
+            - 0.0 = prediction does not match
+
+            For other tasks, use appropriate continuous scores.
+
+        done:
+          type: boolean
+          description: Whether the episode is complete (usually true for single-step)
+
+        truncated:
+          type: boolean
+          nullable: true
+
+        info:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: |
+            Debug info. Recommend including:
+            - expected: ground truth value
+            - predicted: model's prediction
+            - correct: boolean
+
+    ToolCall:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          default: "function"
+        function:
+          type: object
+          properties:
+            name:
+              type: string
+            arguments:
+              type: string
+              description: JSON string of arguments
+
+    RolloutMetrics:
+      type: object
+      required: [episode_returns, mean_return, num_steps]
+      properties:
+        episode_returns:
+          type: array
+          items:
+            type: number
+          description: List of rewards (usually `[reward]` for single-step tasks)
+
+        mean_return:
+          type: number
+          description: |
+            THE OPTIMIZATION TARGET.
+
+            This is what MIPRO/GEPA maximizes. For classification:
+            - 1.0 = prompt produced correct answer
+            - 0.0 = prompt produced wrong answer
+
+            For batch evaluation, this is the average reward.
+
+        num_steps:
+          type: integer
+
+        num_episodes:
+          type: integer
+          default: 1
+
+        outcome_score:
+          type: number
+          nullable: true
+          description: Same as mean_return for most tasks
+
+        events_score:
+          type: number
+          nullable: true
+
+        details:
+          type: object
+          additionalProperties: true
+
+    #---------------------------------------------------------------------------
+    # INFO (optional endpoint)
+    #---------------------------------------------------------------------------
+    TaskInfo:
+      type: object
+      description: Task metadata (for /info endpoint, optional)
+      properties:
+        service:
+          type: object
+          properties:
+            task:
+              type: object
+              properties:
+                id:
+                  type: string
+                name:
+                  type: string
+                description:
+                  type: string
+                version:
+                  type: string
+        dataset:
+          type: object
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+            splits:
+              type: array
+              items:
+                type: string
+            size:
+              type: integer
+        limits:
+          type: object
+          properties:
+            max_turns:
+              type: integer
+            timeout_seconds:
+              type: integer
+
+    #---------------------------------------------------------------------------
+    # COMMON
+    #---------------------------------------------------------------------------
+    HealthResponse:
+      type: object
+      required: [healthy]
+      properties:
+        healthy:
+          type: boolean
+        auth:
+          type: object
+          properties:
+            required:
+              type: boolean
+            expected_prefix:
+              type: string
+              description: First few chars of expected API key (for debugging)
+
+    Error:
+      type: object
+      required: [detail]
+      properties:
+        detail:
+          type: string
+          description: Human-readable error message
+
+paths:
+  #-----------------------------------------------------------------------------
+  # HEALTH (unauthenticated - for simple tunnel checks)
+  #-----------------------------------------------------------------------------
+  /health:
+    get:
+      summary: Health check
+      description: |
+        Basic health check. This endpoint MAY be unauthenticated to allow
+        simple "is the tunnel alive?" checks.
+
+        If you require auth, the optimizer will send `X-API-Key` here too.
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                healthy: true
+        '503':
+          description: Service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  #-----------------------------------------------------------------------------
+  # INFO (optional, authenticated)
+  #-----------------------------------------------------------------------------
+  /info:
+    get:
+      summary: Task metadata (optional)
+      description: |
+        Returns information about the task, dataset, and capabilities.
+        This endpoint is OPTIONAL - implement it if you want the optimizer
+        to discover your task's metadata.
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: Task info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskInfo'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                detail: "Invalid or missing API key"
+
+  #-----------------------------------------------------------------------------
+  # ROLLOUT (required, authenticated)
+  #-----------------------------------------------------------------------------
+  /rollout:
+    post:
+      summary: Evaluate a prompt
+      description: |
+        THE CORE ENDPOINT.
+
+        The optimizer calls this repeatedly with different prompts.
+        You evaluate each prompt and return a reward.
+
+        ## Implementation Checklist
+
+        1. [ ] Parse the RolloutRequest
+        2. [ ] Extract seed: `request.env.seed` or `request.env.config.seed`
+        3. [ ] Load your sample: `dataset[seed % len(dataset)]`
+        4. [ ] Get prompt sections: `request.policy.config.prompt_template.sections`
+        5. [ ] Sort sections by `order` field
+        6. [ ] Render each section: replace `{placeholders}` with your sample data
+        7. [ ] Build messages array for LLM
+        8. [ ] POST to `request.policy.config.inference_url` + `/chat/completions`
+        9. [ ] Parse LLM response (tool_calls or content)
+        10. [ ] Compare prediction to ground truth
+        11. [ ] Return RolloutResponse with `metrics.mean_return` = reward
+
+        ## Example: Classification Task
+
+        Your dataset:
+        ```json
+        [
+          {"query": "How do I reset my PIN?", "label": "change_pin"},
+          {"query": "Card not arriving", "label": "card_arrival"},
+          ...
+        ]
+        ```
+
+        Request comes in with `seed=0`, prompt_template with sections:
+        - system: "You are a classifier..."
+        - user (pattern): "Query: {query}\nClassify using the tool."
+
+        You:
+        1. Load `dataset[0]` = `{"query": "How do I reset my PIN?", "label": "change_pin"}`
+        2. Render: "Query: How do I reset my PIN?\nClassify using the tool."
+        3. POST to `inference_url/chat/completions` with messages + your tool schema
+        4. LLM returns tool_call with `{"intent": "change_pin"}`
+        5. Compare: "change_pin" == "change_pin" → correct!
+        6. Return: `metrics.mean_return = 1.0`
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RolloutRequest'
+      responses:
+        '200':
+          description: Rollout completed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RolloutResponse'
+        '400':
+          description: Bad request (invalid seed, missing fields, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                detail: "Invalid seed: 99999 exceeds dataset size"
+        '401':
+          description: Unauthorized (missing or invalid API key)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                detail: "Invalid or missing API key"
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                detail: "Internal error: failed to load dataset"
+        '502':
+          description: Upstream LLM error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                detail: "LLM returned error: rate limit exceeded"
+```
+
+
+================================================================================
+PART 4: WHAT GOES IN THE SDK
+================================================================================
+
+synth_ai/contracts/
+├── __init__.py          # Expose paths
+└── task_app.yaml        # The contract
+
+__init__.py:
+```python
+from pathlib import Path
+
+CONTRACTS_DIR = Path(__file__).parent
+TASK_APP_CONTRACT_PATH = CONTRACTS_DIR / "task_app.yaml"
+
+def get_task_app_contract() -> str:
+    """Return the Task App contract as a string."""
+    return TASK_APP_CONTRACT_PATH.read_text()
+```
+
+CLI addition (optional):
+```bash
+synth contracts show task-app   # Prints YAML
+synth contracts path task-app   # Prints file path
+```
+
+
+================================================================================
+PART 5: WHAT DOESN'T GO IN THE SDK
+================================================================================
+
+NOT in synth-ai:
+- Rust/Go/TS implementation code
+- Generated types
+- Language-specific examples
+
+The contract IS self-documenting. The inline descriptions explain:
+- What each field means
+- What the service should DO
+- How to integrate with the optimizer
+
+A coding agent reads the YAML, understands the contract, implements it.
+
+
+================================================================================
+PART 6: ACCESSING THE CONTRACT
+================================================================================
+
+Multiple access methods (agent picks what works):
+
+1. Raw GitHub (no install needed):
+   curl https://raw.githubusercontent.com/synth-ai/synth-ai/main/synth_ai/contracts/task_app.yaml
+
+2. Via Python (if they have it):
+   python -c "from synth_ai.contracts import get_task_app_contract; print(get_task_app_contract())"
+
+3. Via CLI (if installed):
+   synth contracts show task-app
+
+4. Via docs site:
+   https://docs.usesynth.ai/contracts/task_app.yaml
+
+
+================================================================================
+PART 7: EXAMPLE - AGENT IMPLEMENTING IN RUST
+================================================================================
+
+Agent's workflow:
+
+1. Get contract:
+   curl -o task_app.yaml https://raw.githubusercontent.com/.../task_app.yaml
+
+2. Read it, understand:
+   - Required: /health (unauthenticated OK), /rollout (authenticated)
+   - Optional: /info
+   - /rollout receives prompt, returns reward
+   - inference_url is BASE URL, append /chat/completions
+   - reward in metrics.mean_return drives optimization
+
+3. Optionally generate types:
+   openapi-generator generate -i task_app.yaml -g rust -o ./generated
+
+4. Implement (pseudocode):
+   ```rust
+   #[post("/rollout")]
+   async fn rollout(req: RolloutRequest) -> Result<RolloutResponse, Error> {
+       let seed = req.env.seed.unwrap_or(0);
+       let sample = dataset.get(seed % dataset.len());
+
+       let messages = render_prompt(&req.policy.config.prompt_template, &sample);
+
+       let llm_url = format!("{}/chat/completions", req.policy.config.inference_url);
+       let llm_response = http_client.post(&llm_url).json(&messages).send().await?;
+
+       let predicted = extract_prediction(&llm_response);
+       let reward = if predicted == sample.label { 1.0 } else { 0.0 };
+
+       Ok(RolloutResponse {
+           run_id: req.run_id,
+           trajectories: vec![Trajectory {
+               steps: vec![Step { reward, done: true, .. }],
+               ..
+           }],
+           metrics: Metrics { mean_return: reward, .. },
+           ..
+       })
+   }
+   ```
+
+5. Run and expose:
+   cargo run --release
+   cloudflared tunnel --url http://localhost:8001
+
+6. Start optimization (via API, no Python):
+   curl -X POST https://agent-learning.onrender.com/api/prompt-learning/online/jobs \
+     -H "Authorization: Bearer $SYNTH_API_KEY" \
+     -d '{"algorithm":"mipro","config_body":{"prompt_learning":{"task_app_url":"https://xxx.trycloudflare.com","task_app_api_key":"your-key"}}}'
+
+7. Monitor job, get optimized prompt when done.
+
+
+================================================================================
+PART 8: EXAMPLE - AGENT IMPLEMENTING IN ZIG
+================================================================================
+
+Agent's workflow:
+
+1. Get contract:
+   curl -o task_app.yaml https://raw.githubusercontent.com/.../task_app.yaml
+
+2. Read it, understand:
+   - Required: /health (unauthenticated OK), /rollout (authenticated)
+   - Optional: /info
+   - /rollout receives prompt, returns reward
+   - inference_url is BASE URL, append /chat/completions
+   - reward in metrics.mean_return drives optimization
+
+3. Dependencies (build.zig.zon):
+   ```zig
+   .{
+       .name = "task-app",
+       .version = "0.1.0",
+       .dependencies = .{
+           // Option A: Use std.http (built-in, no deps)
+           // Option B: Use httpz for ergonomics
+           .httpz = .{
+               .url = "https://github.com/oven-sh/httpz/archive/main.tar.gz",
+           },
+       },
+   }
+   ```
+
+4. Implement (using std.http server):
+   ```zig
+   const std = @import("std");
+   const http = std.http;
+   const json = std.json;
+
+   const Dataset = struct {
+       samples: []Sample,
+
+       const Sample = struct {
+           query: []const u8,
+           label: []const u8,
+       };
+   };
+
+   var dataset: Dataset = undefined;
+
+   pub fn main() !void {
+       var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+       const allocator = gpa.allocator();
+
+       // Load dataset
+       dataset = try loadDataset(allocator, "data/banking77.json");
+
+       var server = http.Server.init(allocator, .{});
+       defer server.deinit();
+
+       try server.listen(.{ .port = 8001 });
+       std.log.info("Task app listening on :8001", .{});
+
+       while (true) {
+           var conn = try server.accept();
+           defer conn.deinit();
+
+           try handleRequest(allocator, &conn);
+       }
+   }
+
+   fn handleRequest(allocator: std.mem.Allocator, conn: *http.Server.Connection) !void {
+       while (conn.state != .closed) {
+           var request = conn.reader();
+           var response = conn.response();
+
+           const path = request.path;
+           const method = request.method;
+
+           if (std.mem.eql(u8, path, "/health")) {
+               try handleHealth(&response);
+           } else if (std.mem.eql(u8, path, "/rollout") and method == .POST) {
+               try handleRollout(allocator, &request, &response);
+           } else {
+               response.status = .not_found;
+               try response.send();
+           }
+       }
+   }
+
+   fn handleHealth(response: anytype) !void {
+       const body =
+           \\{"healthy": true}
+       ;
+       response.status = .ok;
+       response.transfer_encoding = .{ .content_length = body.len };
+       try response.headers.append("Content-Type", "application/json");
+       try response.send();
+       try response.writeAll(body);
+       try response.finish();
+   }
+
+   fn handleRollout(allocator: std.mem.Allocator, request: anytype, response: anytype) !void {
+       // Parse request body
+       const body = try request.reader().readAllAlloc(allocator, 1024 * 1024);
+       defer allocator.free(body);
+
+       const parsed = try json.parseFromSlice(RolloutRequest, allocator, body, .{});
+       defer parsed.deinit();
+       const req = parsed.value;
+
+       // Get seed and load sample
+       const seed: usize = @intCast(req.env.seed orelse 0);
+       const sample = dataset.samples[seed % dataset.samples.len];
+
+       // Render prompt (replace {query} with sample.query)
+       const messages = try renderPrompt(allocator, req.policy.config.prompt_template, sample);
+       defer allocator.free(messages);
+
+       // Call LLM via inference_url + /chat/completions
+       const inference_url = req.policy.config.inference_url orelse
+           req.policy.config.api_base orelse
+           req.policy.config.base_url orelse
+           return error.NoInferenceUrl;
+
+       const llm_url = try std.fmt.allocPrint(allocator, "{s}/chat/completions", .{inference_url});
+       defer allocator.free(llm_url);
+
+       const llm_response = try callLlm(allocator, llm_url, messages);
+       defer allocator.free(llm_response);
+
+       // Extract prediction and compute reward
+       const predicted = try extractPrediction(allocator, llm_response);
+       const reward: f64 = if (std.mem.eql(u8, predicted, sample.label)) 1.0 else 0.0;
+
+       // Build response
+       const resp = RolloutResponse{
+           .run_id = req.run_id,
+           .trajectories = &[_]Trajectory{.{
+               .env_id = try std.fmt.allocPrint(allocator, "banking77::train::{d}", .{seed}),
+               .policy_id = req.policy.policy_id orelse "policy_1",
+               .steps = &[_]Step{.{
+                   .obs = .{ .query = sample.query, .index = seed },
+                   .tool_calls = &[_]ToolCall{},
+                   .reward = reward,
+                   .done = true,
+                   .info = .{
+                       .expected = sample.label,
+                       .predicted = predicted,
+                       .correct = reward == 1.0,
+                   },
+               }},
+               .length = 1,
+               .inference_url = inference_url,
+           }},
+           .metrics = .{
+               .episode_returns = &[_]f64{reward},
+               .mean_return = reward,
+               .num_steps = 1,
+               .num_episodes = 1,
+               .outcome_score = reward,
+           },
+           .aborted = false,
+           .ops_executed = 1,
+       };
+
+       // Serialize and send
+       var buf = std.ArrayList(u8).init(allocator);
+       defer buf.deinit();
+       try json.stringify(resp, .{}, buf.writer());
+
+       response.status = .ok;
+       response.transfer_encoding = .{ .content_length = buf.items.len };
+       try response.headers.append("Content-Type", "application/json");
+       try response.send();
+       try response.writeAll(buf.items);
+       try response.finish();
+   }
+
+   // Type definitions (generated from OpenAPI or hand-written)
+   const RolloutRequest = struct {
+       run_id: []const u8,
+       env: EnvSpec,
+       policy: PolicySpec,
+       mode: ?[]const u8 = null,
+       // ... other fields
+   };
+
+   const EnvSpec = struct {
+       seed: ?i64 = null,
+       config: ?struct {
+           seed: ?i64 = null,
+           split: ?[]const u8 = null,
+       } = null,
+   };
+
+   const PolicySpec = struct {
+       policy_id: ?[]const u8 = null,
+       config: PolicyConfig,
+   };
+
+   const PolicyConfig = struct {
+       model: ?[]const u8 = null,
+       inference_url: ?[]const u8 = null,
+       api_base: ?[]const u8 = null,
+       base_url: ?[]const u8 = null,
+       temperature: ?f64 = 0.0,
+       prompt_template: ?PromptTemplate = null,
+   };
+
+   const PromptTemplate = struct {
+       sections: ?[]Section = null,
+   };
+
+   const Section = struct {
+       role: []const u8,
+       content: ?[]const u8 = null,
+       pattern: ?[]const u8 = null,
+       order: i32 = 0,
+   };
+
+   // ... Response types similarly defined
+   ```
+
+5. Build and run:
+   ```bash
+   zig build -Doptimize=ReleaseFast
+   ./zig-out/bin/task-app
+   # Or: zig build run
+   ```
+
+6. Expose via tunnel:
+   ```bash
+   cloudflared tunnel --url http://localhost:8001
+   # Returns URL like: https://random-words.trycloudflare.com
+   ```
+
+7. Start optimization (via API, no Python):
+   ```bash
+   curl -X POST https://agent-learning.onrender.com/api/prompt-learning/online/jobs \
+     -H "Authorization: Bearer $SYNTH_API_KEY" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "algorithm": "mipro",
+       "config_body": {
+         "prompt_learning": {
+           "task_app_url": "https://xxx.trycloudflare.com",
+           "task_app_api_key": "your-env-key"
+         }
+       }
+     }'
+   ```
+
+8. Monitor job, get optimized prompt when done.
+
+Why Zig for Task Apps:
+- Single static binary (~1-5MB), no runtime deps
+- Cross-compile to any target trivially: `zig build -Dtarget=x86_64-linux-musl`
+- No garbage collection (predictable latency)
+- Excellent for containerized/serverless deployment
+- C interop if you need existing libraries
+
+
+================================================================================
+CHANGES FROM REVIEW FEEDBACK
+================================================================================
+
+1. /info: Added to spec as optional endpoint (was in prose but missing from spec)
+
+2. Error schema: Now wired into all paths with 400/401/500/502 responses
+
+3. /health auth: Made unauthenticated by default, documented that optimizer
+   will send X-API-Key if configured
+
+4. inference_url: Explicitly documented as BASE URL, must append /chat/completions
+
+5. Required fields: Made `reward` required in RolloutStep, added minItems to arrays
+
+6. Example payloads: Added full examples for RolloutRequest and RolloutResponse
+
+7. Mode semantics: Clarified that Task Apps MAY ignore mode field
+
+8. Cloudflare snippet: Added complete example in info.description
+
+
+================================================================================
+SUMMARY
+================================================================================
+
+The OpenAPI contract is the single source of truth. It includes:
+
+1. HTTP interface (schemas, endpoints, error responses)
+2. Behavioral contract (what /rollout should do - inline in descriptions)
+3. Integration guide (how to run optimizer - in info.description)
+4. Example payloads (for codegen and pattern matching)
+
+No language-specific code in SDK. The contract enables any language.
+
+Agent workflow:
+1. curl the YAML
+2. Read and understand (behavioral contract in descriptions)
+3. Optionally generate types (openapi-generator)
+4. Implement /health + /rollout
+5. Connect to optimizer via API (no Python needed)
+
+================================================================================

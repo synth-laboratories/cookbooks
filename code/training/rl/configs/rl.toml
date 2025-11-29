@@ -1,0 +1,61 @@
+# RL Training Configuration for Heart Disease Classification
+#
+# This config trains a model using GRPO (Group Relative Policy Optimization)
+# to classify heart disease from patient data.
+#
+# Dataset: buio/heart-disease from HuggingFace
+# - 303 patient records
+# - 14 medical features
+# - Binary classification (heart disease: yes/no)
+
+[algorithm]
+type = "online"
+variety = "grpo"
+
+[policy]
+# Base model to fine-tune
+model = "Qwen/Qwen3-0.6B"
+provider = "synth"
+
+# Task app URL - update this if using a different port or tunnel
+[task_app]
+url = "http://localhost:8114"
+# For tunnel deployment, use HTTPS URL:
+# url = "https://your-tunnel-id.trycloudflare.com"
+
+[hyperparameters]
+# Number of rollouts (episodes) to run
+n_rollouts = 100
+
+# Batch size for policy updates
+batch_size = 4
+
+# Learning rate for optimizer
+learning_rate = 1e-5
+
+# KL divergence coefficient (constrains how far policy can drift)
+kl_coef = 0.1
+
+# Discount factor for rewards
+gamma = 0.99
+
+# Number of samples per prompt for GRPO
+n_samples = 4
+
+# Maximum sequence length
+max_seq_length = 512
+
+# Gradient accumulation steps
+gradient_accumulation_steps = 1
+
+[compute]
+# GPU configuration
+gpu_type = "H100"
+gpu_count = 1
+
+[logging]
+# Log every N steps
+log_interval = 10
+
+# Save checkpoint every N steps
+checkpoint_interval = 50

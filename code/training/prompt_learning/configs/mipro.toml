@@ -1,0 +1,58 @@
+# MIPRO (Multi-Instruction Prompt Optimization) Configuration
+#
+# MIPRO uses Bayesian optimization to find optimal:
+# - Instructions (system prompts)
+# - Few-shot demonstrations (examples)
+# - Instruction variants for each module
+#
+# Best for:
+# - Instruction-following tasks
+# - Tasks with clear input/output structure
+# - When you want faster convergence
+
+[prompt_learning]
+algorithm = "mipro"
+task_app_url = "http://localhost:8001"
+results_folder = "results"
+
+[prompt_learning.policy]
+# LLM provider: "openai", "groq", "synth"
+provider = "openai"
+# Model for generating responses
+model = "gpt-4o-mini"
+
+[prompt_learning.termination_config]
+# Maximum number of rollouts (prompt evaluations)
+max_rollouts = 50
+# Maximum time in seconds
+max_time_seconds = 1800
+# Stop early if this score is reached
+target_score = 0.95
+
+[prompt_learning.mipro]
+# Number of optimization iterations
+num_iterations = 20
+# Number of top candidates to keep
+top_k = 3
+# Number of bootstrap samples for instruction generation
+num_bootstrap_seeds = 5
+# Number of instruction candidates per module
+num_instructions_per_module = 8
+# Number of few-shot demonstrations to include
+num_demos = 3
+# Whether to optimize instructions
+optimize_instructions = true
+# Whether to optimize demonstrations
+optimize_demos = true
+
+# Initial prompt template
+[prompt_learning.initial_prompt]
+sections = [
+    { role = "system", content = "You are a banking assistant that classifies customer intents. Analyze the customer's message and determine their intent category." }
+]
+
+# Optional display settings
+[display]
+show_curve = true
+verbose_summary = true
+show_trial_results = true

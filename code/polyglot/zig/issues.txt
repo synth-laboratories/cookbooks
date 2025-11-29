@@ -1,0 +1,155 @@
+# Zig 0.15 MIPRO Task App - Issues & Solutions
+
+## 1. Zig 0.15 build.zig API Changes
+
+**Problem:** The `root_source_file` field moved into a `root_module` struct.
+
+**Old (0.14):**
+```zig
+const exe = b.addExecutable(.{
+    .name = "synth-task-app",
+    .root_source_file = b.path("src/main.zig"),
+    .target = target,
+    .optimize = optimize,
+});
+```
+
+**New (0.15):**
+```zig
+const exe = b.addExecutable(.{
+    .name = "synth-task-app",
+    .root_module = b.createModule(.{
+        .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    }),
+});
+```
+
+---
+
+## 2. HTTP Server API Removed
+
+**Problem:** `std.http.Server` was completely removed in Zig 0.15.
+
+**Solution:** Implemented a simple HTTP server using raw TCP sockets:
+- Use `std.net.Address.listen()` to create a TCP server
+- Parse HTTP requests manually (method, path, headers, body)
+- Send responses with manually constructed HTTP headers
+
+---
+
+## 3. ArrayListUnmanaged API Changes
+
+**Problem:** Methods like `deinit()`, `append()`, and `writer()` now require
+an allocator parameter.
+
+**Old:**
+```zig
+var list = std.ArrayListUnmanaged(u8){};
+defer list.deinit();
+try list.append(value);
+const w = list.writer();
+```
+
+**New:**
+```zig
+var list = std.ArrayListUnmanaged(u8){};
+defer list.deinit(allocator);
+try list.append(allocator, value);
+const w = list.writer(allocator);
+```
+
+---
+
+## 4. HTTP Client `open()` Method Removed
+
+**Problem:** The `client.open()` method was removed. Need to use `client.request()`.
+
+**Solution:** Use the new request API:
+```zig
+var req = client.request(.POST, uri, .{
+    .extra_headers = headers,
+}) catch |err| { ... };
+defer req.deinit();
+
+req.transfer_encoding = .{ .content_length = body.len };
+var body_writer = req.sendBody(&.{}) catch |err| { ... };
+body_writer.writer.writeAll(body) catch |err| { ... };
+body_writer.end() catch |err| { ... };
+req.connection.?.flush() catch |err| { ... };
+
+var response = req.receiveHead(&redirect_buffer) catch |err| { ... };
+```
+
+---
+
+## 5. Compressed HTTP Responses (GZIP)
+
+**Problem:** OpenAI API returns gzip-compressed responses by default. The raw
+`response.reader()` returns compressed bytes, causing JSON parsing to fail
+with `SyntaxError`.
+
+**Symptoms:**
+- Response body starts with binary data (gzip magic bytes)
+- JSON parsing fails immediately
+- Adding `Accept-Encoding: identity` header didn't help (server ignored it)
+
+**Solution:** Use `response.readerDecompressing()` instead of `response.reader()`:
+```zig
+var transfer_buffer: [4096]u8 = undefined;
+var decompress_buffer: [std.compress.flate.max_window_len]u8 = undefined;
+var decompress: http.Decompress = undefined;
+var body_reader = response.readerDecompressing(
+    &transfer_buffer,
+    &decompress,
+    &decompress_buffer
+);
+const response_body = body_reader.allocRemaining(allocator, limit) catch |err| { ... };
+```
+
+This handles gzip, deflate, and identity encodings automatically.
+
+---
+
+## 6. URL Query Parameter Handling
+
+**Problem:** When `inference_url` contains query params like `?model=gpt-4o-mini`,
+naively appending `/chat/completions` produces invalid URLs.
+
+**Bad:** `https://api.openai.com/v1?model=gpt-4o-mini/chat/completions`
+**Good:** `https://api.openai.com/v1/chat/completions?model=gpt-4o-mini`
+
+**Solution:** Parse and preserve query params:
+```zig
+const url_str = blk: {
+    if (mem.indexOf(u8, inference_url, "?")) |query_idx| {
+        const base = mem.trimRight(u8, inference_url[0..query_idx], "/");
+        const query = inference_url[query_idx..];
+        break :blk try std.fmt.allocPrint(allocator, "{s}/chat/completions{s}", .{ base, query });
+    } else {
+        const base = mem.trimRight(u8, inference_url, "/");
+        break :blk try std.fmt.allocPrint(allocator, "{s}/chat/completions", .{base});
+    }
+};
+```
+
+---
+
+## 7. LLM API Key Configuration
+
+**Problem:** Need to pass Bearer token auth to OpenAI-compatible APIs.
+
+**Solution:** Read from environment variables and add Authorization header:
+```zig
+const llm_api_key = std.posix.getenv("GROQ_API_KEY") orelse
+                    std.posix.getenv("OPENAI_API_KEY");
+
+if (ctx.llm_api_key) |key| {
+    auth_value = try std.fmt.allocPrint(allocator, "Bearer {s}", .{key});
+    try extra_headers_list.append(allocator, .{
+        .name = "Authorization",
+        .value = auth_value.?
+    });
+}
+```

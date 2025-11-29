@@ -1,0 +1,54 @@
+# GEPA (Genetic Evolution of Prompt Architectures) Configuration
+#
+# GEPA uses genetic algorithms to evolve prompt structures:
+# - Mutation operators (add/remove/modify prompt sections)
+# - Crossover (combine best parts of different prompts)
+# - Selection (keep top-performing variants)
+#
+# Best for:
+# - Complex prompt structures
+# - Multi-component prompts (system + few-shot + chain-of-thought)
+# - Exploring diverse prompt mutations
+
+[prompt_learning]
+algorithm = "gepa"
+task_app_url = "http://localhost:8001"
+results_folder = "results"
+
+[prompt_learning.policy]
+# LLM provider: "openai", "groq", "synth"
+provider = "openai"
+# Model for generating responses
+model = "gpt-4o-mini"
+
+[prompt_learning.termination_config]
+# Maximum number of rollouts (prompt evaluations)
+max_rollouts = 50
+# Maximum time in seconds
+max_time_seconds = 1800
+# Stop early if this score is reached
+target_score = 0.95
+
+[prompt_learning.gepa]
+# Population size (number of prompts per generation)
+population_size = 10
+# Number of generations
+num_generations = 5
+# Mutation rate (probability of mutating each component)
+mutation_rate = 0.3
+# Crossover rate (probability of combining prompts)
+crossover_rate = 0.5
+# Elite count (top prompts to preserve unchanged)
+elite_count = 2
+
+# Initial prompt template (starting point for evolution)
+[prompt_learning.initial_prompt]
+sections = [
+    { role = "system", content = "You are a banking assistant that classifies customer intents. Analyze the customer's message and determine their intent category." }
+]
+
+# Optional display settings
+[display]
+show_curve = true
+verbose_summary = true
+show_trial_results = true

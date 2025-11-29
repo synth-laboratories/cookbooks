@@ -1,0 +1,241 @@
+# MIPRO (Multi-Instruction Prompt Optimization) Configuration
+# Banking77 Intent Classification with gpt-4o-mini
+#
+# This configuration is optimized for the interactive walkthrough.
+# For production use, consider increasing iterations and seeds.
+#
+# MIPRO Algorithm Overview:
+# ─────────────────────────
+# MIPRO uses Bayesian optimization (TPE) in two phases:
+#
+# Phase 1 - BOOTSTRAP:
+#   1. Use a meta-model to generate diverse instruction candidates
+#   2. Sample few-shot demonstrations from the training data
+#   3. Create a search space of (instructions × demos)
+#
+# Phase 2 - TPE OPTIMIZATION:
+#   1. TPE samples promising (instruction, demo) combinations
+#   2. Each combination is evaluated on task samples
+#   3. TPE learns which combinations perform best
+#   4. Converges to optimal instruction + demo selection
+#
+# Best suited for:
+# - Instruction-following tasks with clear structure
+# - Tasks where few-shot examples improve performance
+# - When you want faster convergence than genetic methods
+
+[prompt_learning]
+# Algorithm selection
+algorithm = "mipro"
+
+# Task app URL - update this to your task app endpoint
+# For the Modal-deployed Banking77 task app:
+task_app_url = "https://synth-laboratories-dev--synth-banking77-web-web.modal.run"
+task_app_id = "banking77"
+
+# Directory to save optimization results
+results_folder = "results"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Initial Prompt Pattern
+# ─────────────────────────────────────────────────────────────────────────────
+# This is the starting point for optimization. MIPRO will generate variations
+# of instructions based on this template and the task description.
+
+[prompt_learning.initial_prompt]
+id = "banking77_mipro"
+name = "Banking77 MIPRO Classification"
+
+[[prompt_learning.initial_prompt.messages]]
+role = "system"
+pattern = """You are a banking assistant that classifies customer intents.
+
+Given a customer's message, determine which of the 77 banking intent categories it belongs to.
+
+Categories include:
+- Card-related: card_arrival, card_delivery_estimate, lost_or_stolen_card, etc.
+- Transfer-related: transfer_fee_charged, transfer_into_account, pending_transfer, etc.
+- Account-related: balance_not_updated_after_bank_transfer, edit_personal_details, etc.
+- Support-related: contactless_not_working, pin_blocked, unable_to_verify_identity, etc.
+
+Analyze the customer's message carefully and respond with just the intent category name."""
+order = 0
+
+[[prompt_learning.initial_prompt.messages]]
+role = "user"
+pattern = "Customer Query: {query}\n\nClassify this query into one of the banking intents."
+order = 1
+
+[prompt_learning.initial_prompt.wildcards]
+query = "REQUIRED"  # Will be provided by task app at runtime
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Policy Configuration (Model, Provider, etc.)
+# ─────────────────────────────────────────────────────────────────────────────
+
+[prompt_learning.policy]
+# Inference mode: "synth_hosted" uses Synth's inference infrastructure
+inference_mode = "synth_hosted"
+
+# Model for generating responses during evaluation
+# Format: provider/model_name
+model = "openai/gpt-4o-mini"
+provider = "openai"
+
+# Generation settings
+temperature = 0.0
+max_completion_tokens = 128
+
+# Policy name for task app routing
+policy_name = "banking77-mipro"
+
+# Training split config
+[prompt_learning.env_config]
+pool = "train"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MIPRO-Specific Configuration
+# ─────────────────────────────────────────────────────────────────────────────
+
+[prompt_learning.mipro]
+env_name = "banking77"
+
+# Number of TPE optimization iterations
+# Each iteration evaluates multiple prompt combinations
+# Recommended: 5-10 for walkthroughs, 20-50 for production
+num_iterations = 5
+
+# Number of evaluations per iteration
+num_evaluations_per_iteration = 2
+
+# Batch size for evaluation
+batch_size = 6
+
+# Maximum concurrent evaluations
+max_concurrent = 10
+
+# Meta-model for generating instruction candidates
+meta_model = "gpt-4o-mini"
+meta_model_provider = "openai"
+
+# Threshold for selecting few-shot examples
+few_shot_score_threshold = 0.85
+
+# Maximum number of instructions to consider
+max_instructions = 3
+
+# Retry limit for duplicate proposals
+duplicate_retry_limit = 10
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Seed Pools for Different Phases
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Bootstrap training seeds (for initial instruction generation)
+bootstrap_train_seeds = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+# Online pool seeds (for TPE optimization)
+online_pool = [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
+
+# Test pool seeds (held-out for final evaluation)
+test_pool = [25, 26, 27, 28, 29]
+
+# Validation seeds (for top-K evaluation)
+val_seeds = [30, 31, 32, 33, 34]
+
+# Reference pool (for meta-prompt context)
+reference_pool = [30, 31, 32, 33, 34]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TPE Hyperparameters
+# ─────────────────────────────────────────────────────────────────────────────
+
+[prompt_learning.mipro.tpe]
+# Quantile for splitting good/bad observations
+gamma = 0.25
+
+# Number of candidates to evaluate Expected Improvement
+n_candidates = 32
+
+# Uniform random trials before TPE kicks in
+n_startup_trials = 5
+
+# Exploration probability (uniform sample)
+epsilon = 0.1
+
+# Smoothing parameter for KDE
+alpha = 1.0
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Demo Set Selection
+# ─────────────────────────────────────────────────────────────────────────────
+
+[prompt_learning.mipro.demo]
+# Maximum number of few-shot examples
+max_few_shot_examples = 3
+
+# Number of demo sets to generate per size
+sets_per_size = 4
+
+# Include zero-shot (no demos) option
+include_empty = true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Grounding Configuration (Instruction Proposals)
+# ─────────────────────────────────────────────────────────────────────────────
+
+[prompt_learning.mipro.grounding]
+# Number of instruction proposals to generate
+n = 8
+
+# Temperature for LLM proposal generation
+temperature = 0.7
+
+# Max tokens for proposal generation
+max_tokens = 600
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Meta-Update Configuration
+# ─────────────────────────────────────────────────────────────────────────────
+
+[prompt_learning.mipro.meta_update]
+# Enable periodic meta-updates (regenerate instructions)
+enabled = true
+
+# Regenerate instructions every N iterations
+every_iterations = 3
+
+# Number of top success examples for grounding
+topk_success = 3
+
+# Number of top failure examples for grounding
+topk_failure = 3
+
+# Batch size for proposal validation
+validate_on_batch = 16
+
+# Maximum instruction variants to keep
+keep_k = 8
+
+# Token overlap threshold for deduplication
+dedup_token_overlap = 0.8
+
+# Temperature decay per meta-update
+regen_temperature_decay = 0.95
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Stage Definition (per-stage policy)
+# ─────────────────────────────────────────────────────────────────────────────
+
+[[prompt_learning.mipro.stages]]
+stage_id = "stage_default"
+max_instruction_slots = 3
+max_demo_slots = 3
+
+[prompt_learning.mipro.stages.policy]
+model = "openai/gpt-4o-mini"
+provider = "openai"
+inference_mode = "synth_hosted"
+temperature = 0.0
+max_completion_tokens = 128
+policy_name = "banking77-mipro"
