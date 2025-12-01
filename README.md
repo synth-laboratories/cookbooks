@@ -2,11 +2,11 @@
 
 ## ✅ Ready
 
-**Prompt Learning (Banking77)**
+**GEPA AND MIRPO Fully In-Process**
 - `code/training/prompt_learning/gepa/` — GEPA walkthrough
 - `code/training/prompt_learning/mipro/` — MIPRO walkthrough
 
-**Polyglot Task Apps**
+**GEPA with Any Language (CLI)**
 - `code/polyglot/python/` — Python
 - `code/polyglot/rust/` — Rust
 - `code/polyglot/typescript/` — TypeScript
