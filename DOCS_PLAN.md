@@ -1,135 +1,236 @@
-# Mintlify Docs Plan
+# Mintlify Cookbook Docs Plan
 
-Two new cookbook pages for `monorepo/docs/cookbooks/`.
+OpenAI-style cookbooks: code-first, real links to source files, minimal prose.
+
+---
+
+## Format Guidelines
+
+**OpenAI cookbook style:**
+- Start with runnable code block
+- Link to source files inline: `[run_walkthrough.py](link)`
+- Show real output/results
+- Minimal explanation between code blocks
+- Prerequisites as bullet list, not paragraphs
+- No fluff headers like "Introduction" or "Conclusion"
+
+**Link pattern:**
+```
+[filename.py](https://github.com/synth-laboratories/cookbooks/blob/main/code/path/filename.py)
+```
 
 ---
 
 ## 1. In-Process GEPA/MIPRO
 
-**File:** `cookbooks/prompt-optimization-in-process.mdx`
+**File:** `monorepo/docs/cookbooks/prompt-optimization-in-process.mdx`
 
-**Source:** `cookbooks/code/training/prompt_learning/gepa/` and `mipro/`
+### Draft Structure
 
-### Structure
+```mdx
+---
+title: "In-Process Prompt Optimization"
+description: "Run GEPA or MIPRO from a single Python script"
+---
 
-```
-1. Intro (2 sentences)
-2. Prerequisites (env vars, uv)
-3. Quick Start
-   - GEPA one-liner
-   - MIPRO one-liner
-4. What Happens
-   - Task app starts in background
-   - Tunnel created automatically
-   - Job runs, polls, returns results
-5. Code Walkthrough
-   - run_walkthrough.py snippet
-   - InProcessTaskApp usage
-6. Config Reference
-   - Key GEPA params (population, generations, mutation)
-   - Key MIPRO params (iterations, demos, instructions)
-7. Results
-   - Show actual job IDs and scores from results.json
-8. Troubleshooting (3-4 bullets)
-```
+## Prerequisites
 
-### Content to Pull
+- Python 3.11+
+- `uv` package manager
+- API keys: `SYNTH_API_KEY`, `GROQ_API_KEY`
 
-From `gepa/walkthrough.md`:
-- Real job ID: `pl_5ea04259c2fd4c7a`
-- Score: 83.33%
-- Time: ~35s
+## GEPA: Banking77
 
-From `mipro/walkthrough.md`:
-- Real job ID: `pl_e95cc778c0fb4742`
-- Score: 60%
-- Time: ~130s
+Run optimization with one command:
 
-From `gepa/run_walkthrough.py`:
-- InProcessTaskApp pattern
-- PromptLearningJob.from_config usage
+\`\`\`bash
+cd synth-ai
+uv run python /path/to/cookbooks/code/training/prompt_learning/gepa/run_walkthrough.py
+\`\`\`
+
+**Source:** [run_walkthrough.py](https://github.com/synth-laboratories/cookbooks/blob/main/code/training/prompt_learning/gepa/run_walkthrough.py) | [config.toml](https://github.com/synth-laboratories/cookbooks/blob/main/code/training/prompt_learning/gepa/config.toml)
+
+### What happens
+
+1. Task app starts in background thread
+2. Cloudflare tunnel created automatically  
+3. GEPA job submitted and polled
+4. Results returned, cleanup automatic
+
+### Results
+
+Job `pl_5ea04259c2fd4c7a` — **83.33% accuracy** in ~35s
+
+\`\`\`json
+{
+  "job_id": "pl_5ea04259c2fd4c7a",
+  "best_score": 0.8333,
+  "algorithm": "gepa",
+  "total_time_seconds": 35.6
+}
+\`\`\`
+
+**Full results:** [results.json](https://github.com/synth-laboratories/cookbooks/blob/main/code/training/prompt_learning/gepa/results.json)
 
 ---
 
-## 2. Polyglot Task Apps via CLI
+## MIPRO: Banking77
 
-**File:** `cookbooks/prompt-optimization-polyglot.mdx`
+\`\`\`bash
+uv run python /path/to/cookbooks/code/training/prompt_learning/mipro/run_walkthrough.py
+\`\`\`
 
-**Source:** `cookbooks/code/polyglot/`
+**Source:** [run_walkthrough.py](https://github.com/synth-laboratories/cookbooks/blob/main/code/training/prompt_learning/mipro/run_walkthrough.py) | [config.toml](https://github.com/synth-laboratories/cookbooks/blob/main/code/training/prompt_learning/mipro/config.toml)
 
-### Structure
+### Results
 
+Job `pl_e95cc778c0fb4742` — **60% accuracy** in ~130s
+
+**Full results:** [results.json](https://github.com/synth-laboratories/cookbooks/blob/main/code/training/prompt_learning/mipro/results.json)
+
+---
+
+## Core Pattern
+
+\`\`\`python
+from synth_ai.task import InProcessTaskApp
+from synth_ai.sdk.api.train.prompt_learning import PromptLearningJob
+
+async with InProcessTaskApp(
+    task_app_path="task_app.py",
+    port=8001,
+) as task_app:
+    job = PromptLearningJob.from_config(
+        config_path="config.toml",
+        task_app_url=task_app.url,
+    )
+    results = await job.poll_until_complete()
+\`\`\`
+
+**Full walkthrough:** [walkthrough.md](https://github.com/synth-laboratories/cookbooks/blob/main/code/training/prompt_learning/gepa/walkthrough.md)
 ```
-1. Intro (why polyglot - 2 sentences)
-2. Supported Languages
-   - Python, Rust, TypeScript, Go (table with status)
-3. Quick Start per Language
-   - Build command
-   - Run command
-   - Tunnel command
-   - CLI train command
-4. Results Summary
-   - Table: language, job_id, accuracy, time
-5. The Contract
-   - Link to OpenAPI spec
-   - Required endpoints (/health, /rollout)
-6. Running Optimization
-   - `synth train config.toml --poll`
-   - No Python SDK required
-7. Troubleshooting (3-4 bullets)
+
+---
+
+## 2. Polyglot Task Apps
+
+**File:** `monorepo/docs/cookbooks/prompt-optimization-polyglot.mdx`
+
+### Draft Structure
+
+```mdx
+---
+title: "Polyglot Task Apps"
+description: "Prompt optimization with task apps in Rust, Go, TypeScript, Python"
+---
+
+Task apps work in any language. Build, run, optimize via CLI.
+
+## Results Summary
+
+| Language   | Job ID                 | Accuracy | Source |
+|------------|------------------------|----------|--------|
+| Rust       | `pl_4f69a1b099a14e4b`  | **100%** | [main.rs](https://github.com/synth-laboratories/cookbooks/blob/main/code/polyglot/rust/src/main.rs) |
+| TypeScript | `pl_787c47998cfe4745`  | 85.7%    | [index.ts](https://github.com/synth-laboratories/cookbooks/blob/main/code/polyglot/typescript/src/index.ts) |
+| Python     | `pl_7e0227cc41454ec5`  | 66.7%    | [app.py](https://github.com/synth-laboratories/cookbooks/blob/main/code/polyglot/python/app.py) |
+| Go         | `pl_1dd94dfdc8c6479d`  | 60%      | [main.go](https://github.com/synth-laboratories/cookbooks/blob/main/code/polyglot/go/main.go) |
+
+---
+
+## Rust
+
+\`\`\`bash
+cd cookbooks/code/polyglot/rust
+cargo build --release
+ENVIRONMENT_API_KEY=secret ./target/release/synth-task-app
+\`\`\`
+
+Expose via tunnel:
+
+\`\`\`bash
+cloudflared tunnel --url http://localhost:8001
+\`\`\`
+
+Run optimization:
+
+\`\`\`bash
+synth train gepa_config.toml --poll
+\`\`\`
+
+**Source:** [main.rs](https://github.com/synth-laboratories/cookbooks/blob/main/code/polyglot/rust/src/main.rs) | [gepa_config.toml](https://github.com/synth-laboratories/cookbooks/blob/main/code/polyglot/rust/gepa_config.toml) | [walkthrough.md](https://github.com/synth-laboratories/cookbooks/blob/main/code/polyglot/rust/walkthrough.md)
+
+---
+
+## TypeScript
+
+\`\`\`bash
+cd cookbooks/code/polyglot/typescript
+npm install && npm run dev
+\`\`\`
+
+**Source:** [index.ts](https://github.com/synth-laboratories/cookbooks/blob/main/code/polyglot/typescript/src/index.ts) | [walkthrough.md](https://github.com/synth-laboratories/cookbooks/blob/main/code/polyglot/typescript/walkthrough.md)
+
+---
+
+## Go
+
+\`\`\`bash
+cd cookbooks/code/polyglot/go
+go build -o synth-task-app && ./synth-task-app
+\`\`\`
+
+**Source:** [main.go](https://github.com/synth-laboratories/cookbooks/blob/main/code/polyglot/go/main.go) | [walkthrough.md](https://github.com/synth-laboratories/cookbooks/blob/main/code/polyglot/go/walkthrough.md)
+
+---
+
+## Python
+
+\`\`\`bash
+cd cookbooks/code/polyglot/python
+pip install -r requirements.txt
+python app.py
+\`\`\`
+
+**Source:** [app.py](https://github.com/synth-laboratories/cookbooks/blob/main/code/polyglot/python/app.py) | [walkthrough.md](https://github.com/synth-laboratories/cookbooks/blob/main/code/polyglot/python/walkthrough.md)
+
+---
+
+## The Contract
+
+All task apps implement the same [OpenAPI spec](https://github.com/synth-laboratories/synth-ai/blob/main/synth_ai/contracts/task_app.yaml):
+
+- `GET /health` — health check
+- `POST /rollout` — evaluate prompt candidate
+
+**Details:** [polyglot-task-apps](/prompt-optimization/polyglot-task-apps)
 ```
-
-### Content to Pull
-
-From `polyglot/*/results.json`:
-
-| Language   | Job ID                  | Accuracy |
-|------------|-------------------------|----------|
-| Python     | `pl_7e0227cc41454ec5`   | 66.7%    |
-| Rust       | `pl_4f69a1b099a14e4b`   | 100%     |
-| TypeScript | `pl_787c47998cfe4745`   | 85.7%    |
-| Go         | `pl_1dd94dfdc8c6479d`   | 60%      |
-
-From `polyglot/*/walkthrough.md`:
-- Build/run commands
-- Tunnel setup
-- CLI invocation
 
 ---
 
 ## Navigation Update
 
-Update `docs.json` Cookbooks tab:
+`monorepo/docs/docs.json`:
 
 ```json
 {
   "group": "Prompt Optimization",
   "pages": [
     "cookbooks/prompt-optimization-in-process",
-    "cookbooks/prompt-optimization-polyglot",
-    "cookbooks/prompt-optimization-mipro",
-    "cookbooks/prompt-optimization-gepa"
+    "cookbooks/prompt-optimization-polyglot"
   ]
 }
 ```
 
----
-
-## Existing Docs to Reference
-
-- `prompt-optimization/gepa-in-process.mdx` — detailed GEPA mechanics
-- `prompt-optimization/polyglot-task-apps.mdx` — full polyglot reference
-- `prompt-optimization/walkthroughs/in-process-task-app.mdx` — step-by-step
-
-New cookbook pages should be **terse** and link to these for details.
+Remove old stubs:
+- `cookbooks/prompt-optimization-mipro.mdx`
+- `cookbooks/prompt-optimization-gepa.mdx`
 
 ---
 
-## Style
+## Checklist
 
-- Max 150 lines per page
-- Code blocks with real commands
-- Tables for comparisons
-- No fluff, direct instructions
-- Link to source files in cookbooks repo
-
+- [ ] Create `prompt-optimization-in-process.mdx`
+- [ ] Create `prompt-optimization-polyglot.mdx`
+- [ ] Update `docs.json` navigation
+- [ ] Delete old stub files
+- [ ] Verify all GitHub links resolve
