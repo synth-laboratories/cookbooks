@@ -1,0 +1,11 @@
+{
+  "job_id": "pl_2719a7b15cc6433b",
+  "algorithm": "gepa",
+  "environment": "crafter",
+  "status": "in_progress",
+  "best_score": null,
+  "policy_model": "llama-3.1-8b-instant",
+  "policy_provider": "groq",
+  "timestamp": "2025-11-29T22:21:22.175246",
+  "notes": "GEPA optimization for Crafter survival game - maximizing achievements. Working on output extraction bug - extraction logic needs to handle Crafter's 'actions' tool call format."
+}
