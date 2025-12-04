@@ -1,39 +1,38 @@
 //! ╔═══════════════════════════════════════════════════════════════════════════╗
 //! ║                                                                           ║
 //! ║   Synth Task App · Rust                                                   ║
-//! ║   Banking77 Intent Classification                                         ║
+//! ║   Banking77 Intent Classification with Integrated Smoke Test              ║
 //! ║                                                                           ║
 //! ║   A reference implementation of the Synth Task App contract.              ║
 //! ║   This app enables prompt optimization via the GEPA algorithm.            ║
 //! ║                                                                           ║
 //! ╚═══════════════════════════════════════════════════════════════════════════╝
 //!
-//! # Architecture
-//!
-//! This Task App exposes three endpoints that Synth uses during optimization:
-//!
-//! - `GET  /health`     → Liveness probe (unauthenticated)
-//! - `GET  /task_info`  → Describes the task, dataset, and scoring rubric
-//! - `POST /rollout`    → Executes one episode: render prompt → call LLM → score
-//!
-//! The optimization loop works as follows:
-//! 1. Synth proposes a candidate prompt template
-//! 2. Synth calls `/rollout` with that template + a seed
-//! 3. This app renders the prompt, calls the LLM, scores the response
-//! 4. Synth uses the score to evolve better prompts
-//!
-//! # Running
+//! # Running as Task App Server
 //!
 //! ```bash
 //! cargo run --release
 //! ```
 //!
+//! # Running End-to-End Smoke Test
+//!
+//! ```bash
+//! cargo run --release -- --smoke-test
+//! ```
+//!
+//! This will:
+//! 1. Start the task app server
+//! 2. Create a Cloudflare tunnel
+//! 3. Submit a GEPA job to production
+//! 4. Stream events until completion
+//!
 //! # Environment
 //!
 //! - `ENVIRONMENT_API_KEY` — API key for authenticating Synth requests
+//! - `SYNTH_API_KEY` — API key for backend (smoke test only)
 //! - `PORT` — Server port (default: 8001)
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use axum::{
     extract::{Request, State},
     http::{HeaderMap, StatusCode},
@@ -42,28 +41,30 @@ use axum::{
     Router,
 };
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, env, fs, path::Path, sync::Arc};
+use std::{collections::HashMap, env, fs, path::Path, process::Stdio, sync::Arc, time::Duration};
+use tokio::{
+    io::{AsyncBufReadExt, BufReader},
+    process::Command,
+    time::sleep,
+};
 use tracing::{info, warn};
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Types
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-/// A labeled sample from the Banking77 dataset
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Sample {
     text: String,
     label: String,
 }
 
-/// Dataset loaded from JSON
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct DatasetFile {
     samples: Vec<Sample>,
     labels: Vec<String>,
 }
 
-/// Rollout request from Synth
 #[derive(Debug, Deserialize)]
 struct RolloutRequest {
     #[serde(default)]
@@ -87,7 +88,6 @@ struct PolicySpec {
     config: HashMap<String, serde_json::Value>,
 }
 
-/// Rollout response to Synth
 #[derive(Debug, Serialize)]
 struct RolloutResponse {
     run_id: String,
@@ -137,10 +137,6 @@ struct Metrics {
     num_episodes: i32,
     outcome_score: f64,
 }
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Task Info Types
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 #[derive(Debug, Serialize)]
 struct TaskInfo {
@@ -194,16 +190,40 @@ struct LimitsInfo {
 struct Config {
     port: u16,
     api_key: Option<String>,
+    synth_api_key: Option<String>,
+    backend_url: String,
 }
 
 impl Config {
     fn from_env() -> Self {
+        // Try to load from synth-ai/.env
+        let env_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../../synth-ai/.env");
+        if env_path.exists() {
+            if let Ok(content) = fs::read_to_string(&env_path) {
+                for line in content.lines() {
+                    let line = line.trim();
+                    if !line.is_empty() && !line.starts_with('#') {
+                        if let Some((key, value)) = line.split_once('=') {
+                            let value = value.trim_matches(|c| c == '"' || c == '\'');
+                            if env::var(key).is_err() {
+                                env::set_var(key, value);
+                            }
+                        }
+                    }
+                }
+                println!("✓ Loaded .env from synth-ai");
+            }
+        }
+
         Self {
             port: env::var("PORT")
                 .ok()
                 .and_then(|p| p.parse().ok())
                 .unwrap_or(8001),
             api_key: env::var("ENVIRONMENT_API_KEY").ok(),
+            synth_api_key: env::var("SYNTH_API_KEY").ok(),
+            backend_url: env::var("BACKEND_URL")
+                .unwrap_or_else(|_| "https://agent-learning.onrender.com/api".into()),
         }
     }
 }
@@ -219,12 +239,11 @@ struct Dataset {
 
 impl Dataset {
     fn load() -> Self {
-        // Try to load from the shared data file
         let data_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../data/banking77.json");
-        
+
         if let Ok(content) = fs::read_to_string(&data_path) {
             if let Ok(data) = serde_json::from_str::<DatasetFile>(&content) {
-                info!("📊 Loaded {} samples from {:?}", data.samples.len(), data_path);
+                println!("📊 Loaded {} samples", data.samples.len());
                 return Self {
                     samples: data.samples,
                     labels: data.labels,
@@ -232,8 +251,7 @@ impl Dataset {
             }
         }
 
-        // Fallback to embedded samples
-        warn!("⚠️  Dataset not found, using embedded samples");
+        println!("⚠️  Dataset not found, using embedded samples");
         let samples = vec![
             Sample { text: "How do I reset my PIN?".into(), label: "change_pin".into() },
             Sample { text: "My card hasn't arrived yet".into(), label: "card_arrival".into() },
@@ -261,14 +279,12 @@ impl Dataset {
 // Prompt Rendering
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-/// Render a template string with placeholder substitution: {key} → value
 fn render(template: &str, vars: &HashMap<String, String>) -> String {
     vars.iter().fold(template.to_string(), |acc, (key, value)| {
         acc.replace(&format!("{{{}}}", key), value)
     })
 }
 
-/// Build chat messages from a policy config and sample
 fn build_messages(
     policy_config: &HashMap<String, serde_json::Value>,
     sample: &Sample,
@@ -279,9 +295,7 @@ fn build_messages(
     vars.insert("text".into(), sample.text.clone());
     vars.insert("intents".into(), labels.join(", "));
 
-    // Check for prompt_template in policy config
     if let Some(template) = policy_config.get("prompt_template") {
-        // Handle object template with sections
         let sections = template
             .get("prompt_sections")
             .or_else(|| template.get("sections"))
@@ -309,7 +323,6 @@ fn build_messages(
         }
     }
 
-    // Default fallback
     vec![
         ChatMessage {
             role: "system".into(),
@@ -388,7 +401,6 @@ struct ResponseFunction {
     arguments: String,
 }
 
-/// The classify tool that the LLM must call
 fn classify_tool() -> Tool {
     Tool {
         tool_type: "function".into(),
@@ -409,14 +421,12 @@ fn classify_tool() -> Tool {
     }
 }
 
-/// Call an OpenAI-compatible LLM endpoint (Synth provides authenticated inference_url)
 async fn call_llm(
     client: &reqwest::Client,
     base_url: &str,
     model: &str,
     messages: Vec<ChatMessage>,
 ) -> Result<ChatResponse> {
-    // Construct the chat completions URL, preserving any query params
     let url = if let Some(q_idx) = base_url.find('?') {
         let (base, query) = base_url.split_at(q_idx);
         format!("{}/chat/completions{}", base.trim_end_matches('/'), query)
@@ -449,13 +459,11 @@ async fn call_llm(
     Ok(response.json().await?)
 }
 
-/// Extract prediction and tool calls from LLM response
 fn extract_prediction(response: &ChatResponse) -> (Option<String>, Vec<ToolCall>) {
     let mut tool_calls = Vec::new();
     let mut prediction = None;
 
     if let Some(choice) = response.choices.first() {
-        // Extract from tool calls
         if let Some(calls) = &choice.message.tool_calls {
             for call in calls {
                 tool_calls.push(ToolCall {
@@ -475,7 +483,6 @@ fn extract_prediction(response: &ChatResponse) -> (Option<String>, Vec<ToolCall>
             }
         }
 
-        // Fallback to raw content if no tool call
         if prediction.is_none() {
             prediction = choice.message.content.as_ref().map(|c| c.trim().to_string());
         }
@@ -514,7 +521,6 @@ struct ErrorDetail {
     message: String,
 }
 
-/// Verify API key for protected routes
 fn require_auth(state: &AppState, headers: &HeaderMap) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
     if let Some(expected) = &state.config.api_key {
         let provided = headers.get("x-api-key").and_then(|v| v.to_str().ok());
@@ -533,16 +539,10 @@ fn require_auth(state: &AppState, headers: &HeaderMap) -> Result<(), (StatusCode
     Ok(())
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /health — Liveness probe
-// ─────────────────────────────────────────────────────────────────────────────
 async fn health_handler() -> Json<HealthResponse> {
     Json(HealthResponse { healthy: true })
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /task_info — Task metadata and available seeds
-// ─────────────────────────────────────────────────────────────────────────────
 async fn task_info_handler(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -550,7 +550,6 @@ async fn task_info_handler(
 ) -> Result<Json<Vec<TaskInfo>>, (StatusCode, Json<ErrorResponse>)> {
     require_auth(&state, &headers)?;
 
-    // Parse requested seeds from query string
     let query_string = req.uri().query().unwrap_or("");
     let requested: Vec<i32> = query_string
         .split('&')
@@ -605,9 +604,6 @@ async fn task_info_handler(
     Ok(Json(infos))
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// POST /rollout — Execute one classification episode
-// ─────────────────────────────────────────────────────────────────────────────
 async fn rollout_handler(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -618,7 +614,6 @@ async fn rollout_handler(
     let seed = req.env.seed.unwrap_or(0) as usize;
     let sample = state.dataset.get(seed);
 
-    // Resolve inference URL
     let inference_url = req.policy.config
         .get("inference_url")
         .or_else(|| req.policy.config.get("api_base"))
@@ -643,7 +638,6 @@ async fn rollout_handler(
 
     let messages = build_messages(&req.policy.config, sample, &state.dataset.labels);
 
-    // Call LLM
     let llm_response = call_llm(&state.http_client, inference_url, model, messages)
         .await
         .map_err(|e| {
@@ -661,7 +655,6 @@ async fn rollout_handler(
 
     let (prediction, tool_calls) = extract_prediction(&llm_response);
 
-    // Score: exact match on intent label
     let correct = prediction
         .as_ref()
         .map(|p| p.to_lowercase() == sample.label.to_lowercase())
@@ -676,7 +669,6 @@ async fn rollout_handler(
         if correct { "✓" } else { "✗" }
     );
 
-    // Build response
     let mut obs = HashMap::new();
     obs.insert("query".into(), serde_json::json!(sample.text));
     obs.insert("index".into(), serde_json::json!(seed));
@@ -716,27 +708,248 @@ async fn rollout_handler(
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Server
+// Cloudflare Tunnel
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    tracing_subscriber::fmt::init();
+async fn create_tunnel(port: u16) -> Result<(String, tokio::process::Child)> {
+    println!("🌐 Creating Cloudflare tunnel for port {}...", port);
 
-    let config = Config::from_env();
-    let dataset = Dataset::load();
+    let mut child = Command::new("cloudflared")
+        .args(["tunnel", "--config", "/dev/null", "--url", &format!("http://127.0.0.1:{}", port)])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
 
-    println!(
-        r#"
-╭───────────────────────────────────────╮
-│  Synth Task App · Banking77           │
-│  Port: {:<5}                          │
-│  Auth: {}                        │
-╰───────────────────────────────────────╯
-"#,
-        config.port,
-        if config.api_key.is_some() { "enabled ✓" } else { "disabled ⚠" }
-    );
+    let stderr = child.stderr.take().ok_or_else(|| anyhow!("No stderr"))?;
+    let mut reader = BufReader::new(stderr).lines();
+
+    // Wait for tunnel URL (up to 30 seconds)
+    let url = tokio::time::timeout(Duration::from_secs(30), async {
+        while let Some(line) = reader.next_line().await? {
+            if let Some(start) = line.find("https://") {
+                if let Some(end) = line[start..].find(".trycloudflare.com") {
+                    let url = &line[start..start + end + ".trycloudflare.com".len()];
+                    return Ok::<String, anyhow::Error>(url.to_string());
+                }
+            }
+        }
+        Err(anyhow!("Tunnel URL not found in output"))
+    })
+    .await
+    .map_err(|_| anyhow!("Timeout waiting for tunnel"))??;
+
+    println!("✅ Tunnel created: {}", url);
+
+    // Wait a bit for DNS propagation
+    println!("⏳ Waiting for tunnel DNS (5s)...");
+    sleep(Duration::from_secs(5)).await;
+
+    Ok((url, child))
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Smoke Test Job Submission & Polling
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+#[derive(Debug, Deserialize)]
+struct JobResponse {
+    job_id: Option<String>,
+    id: Option<String>,
+    status: Option<String>,
+    error: Option<String>,
+    metadata: Option<serde_json::Value>,
+}
+
+async fn submit_job(
+    client: &reqwest::Client,
+    backend_url: &str,
+    synth_api_key: &str,
+    task_app_url: &str,
+    task_app_api_key: &str,
+) -> Result<String> {
+    println!("📤 Submitting GEPA job...");
+    println!("   Task App URL: {}", task_app_url);
+
+    let config_body = serde_json::json!({
+        "prompt_learning": {
+            "algorithm": "gepa",
+            "task_app_url": task_app_url,
+            "task_app_api_key": task_app_api_key,
+            "initial_prompt": {
+                "id": "banking77_rust",
+                "name": "Banking77 Classification (Rust)",
+                "messages": [
+                    {"role": "system", "pattern": "You are an expert banking assistant. Classify queries using the classify tool.", "order": 0},
+                    {"role": "user", "pattern": "Query: {query}\nIntents: {intents}\nClassify this query.", "order": 1}
+                ],
+                "wildcards": {"query": "REQUIRED", "intents": "REQUIRED"}
+            },
+            "policy": {
+                "inference_mode": "synth_hosted",
+                "model": "gpt-4.1-nano",
+                "provider": "openai",
+                "temperature": 0.0,
+                "max_completion_tokens": 64
+            },
+            "gepa": {
+                "env_name": "banking77",
+                "proposer_effort": "MEDIUM",
+                "proposer_output_tokens": "FAST",
+                "evaluation": {
+                    "seeds": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+                    "validation_seeds": [50, 51, 52, 53, 54],
+                    "validation_pool": "train",
+                    "validation_top_k": 2
+                },
+                "rollout": {"budget": 75, "max_concurrent": 15, "minibatch_size": 3},
+                "mutation": {"rate": 0.3},
+                "population": {
+                    "initial_size": 4,
+                    "num_generations": 3,
+                    "children_per_generation": 2,
+                    "crossover_rate": 0.5,
+                    "selection_pressure": 1.0,
+                    "patience_generations": 5
+                },
+                "archive": {
+                    "size": 64,
+                    "pareto_set_size": 10,
+                    "pareto_eps": 1e-6,
+                    "feedback_fraction": 0.231
+                },
+                "token": {
+                    "max_limit": 4096,
+                    "counting_model": "gpt-4",
+                    "enforce_limit": false
+                }
+            },
+            "termination_config": {"max_cost_usd": 5.0, "max_trials": 75}
+        }
+    });
+
+    let url = format!("{}/prompt-learning/online/jobs", backend_url.trim_end_matches('/'));
+
+    let response = client
+        .post(&url)
+        .header("Authorization", format!("Bearer {}", synth_api_key))
+        .header("Content-Type", "application/json")
+        .json(&serde_json::json!({
+            "algorithm": "gepa",
+            "config_body": config_body,
+            "task_app_url": task_app_url,
+            "task_app_api_key": task_app_api_key,
+        }))
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(anyhow!("Job submission failed: {} - {}", status, body));
+    }
+
+    let result: JobResponse = response.json().await?;
+    let job_id = result.job_id.or(result.id).ok_or_else(|| anyhow!("No job_id in response"))?;
+
+    println!("✅ Job submitted: {}", job_id);
+    Ok(job_id)
+}
+
+async fn poll_job(
+    client: &reqwest::Client,
+    backend_url: &str,
+    synth_api_key: &str,
+    job_id: &str,
+) -> Result<bool> {
+    println!("\n⏳ Polling for completion (this may take 2-5 minutes)...");
+
+    let url = format!("{}/prompt-learning/online/jobs/{}", backend_url.trim_end_matches('/'), job_id);
+
+    for i in 1..=120 {
+        sleep(Duration::from_secs(5)).await;
+
+        let response = client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", synth_api_key))
+            .send()
+            .await;
+
+        let result: JobResponse = match response {
+            Ok(resp) if resp.status().is_success() => {
+                match resp.json().await {
+                    Ok(r) => r,
+                    Err(_) => continue,
+                }
+            }
+            _ => continue,
+        };
+
+        let status = result.status.as_deref().unwrap_or("unknown");
+        print!("\r   [{:3}/120] Status: {:<12}", i, status);
+        std::io::Write::flush(&mut std::io::stdout()).ok();
+
+        match status {
+            "succeeded" | "completed" | "success" => {
+                println!();
+                println!("\n✅ Job completed successfully!");
+
+                if let Some(metadata) = result.metadata {
+                    if let Some(score) = metadata.get("prompt_best_score").and_then(|v| v.as_f64()) {
+                        println!("   Best Score: {:.1}%", score * 100.0);
+                    }
+                }
+                return Ok(true);
+            }
+            "failed" | "cancelled" | "error" => {
+                println!();
+                println!("\n❌ Job failed!");
+                if let Some(error) = result.error {
+                    println!("   Error: {}", error);
+                }
+                return Ok(false);
+            }
+            _ => {}
+        }
+    }
+
+    println!("\n⏰ Timeout - job still running after 10 minutes");
+    Ok(false)
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Main
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+async fn run_server(state: Arc<AppState>) -> Result<()> {
+    let port = state.config.port;
+
+    let app = Router::new()
+        .route("/health", get(health_handler))
+        .route("/task_info", get(task_info_handler))
+        .route("/rollout", post(rollout_handler))
+        .with_state(state);
+
+    let addr = format!("0.0.0.0:{}", port);
+    let listener = tokio::net::TcpListener::bind(&addr).await?;
+    axum::serve(listener, app).await?;
+
+    Ok(())
+}
+
+async fn run_smoke_test(config: Config, dataset: Dataset) -> Result<()> {
+    println!(r#"
+╭───────────────────────────────────────────────────────────────────────────╮
+│  🦀 Rust GEPA Smoke Test                                                  │
+╰───────────────────────────────────────────────────────────────────────────╯"#);
+
+    let synth_api_key = config.synth_api_key.clone()
+        .ok_or_else(|| anyhow!("SYNTH_API_KEY is required for smoke test"))?;
+    let task_app_api_key = config.api_key.clone()
+        .ok_or_else(|| anyhow!("ENVIRONMENT_API_KEY is required for smoke test"))?;
+
+    println!("  Backend URL:     {}", config.backend_url);
+    println!("  Task App Port:   {}", config.port);
+    println!("");
 
     let state = Arc::new(AppState {
         config,
@@ -744,15 +957,108 @@ async fn main() -> Result<()> {
         http_client: reqwest::Client::new(),
     });
 
-    let app = Router::new()
-        .route("/health", get(health_handler))
-        .route("/task_info", get(task_info_handler))
-        .route("/rollout", post(rollout_handler))
-        .with_state(state.clone());
+    // Start server in background
+    let server_state = state.clone();
+    let port = server_state.config.port;
+    tokio::spawn(async move {
+        if let Err(e) = run_server(server_state).await {
+            eprintln!("Server error: {}", e);
+        }
+    });
 
-    let addr = format!("0.0.0.0:{}", state.config.port);
-    let listener = tokio::net::TcpListener::bind(&addr).await?;
-    axum::serve(listener, app).await?;
+    // Wait for server to start
+    sleep(Duration::from_secs(1)).await;
 
-    Ok(())
+    // Verify server is running
+    let health_url = format!("http://127.0.0.1:{}/health", port);
+    let client = reqwest::Client::new();
+
+    for _ in 0..10 {
+        if client.get(&health_url).send().await.is_ok() {
+            println!("✓ Task app server started on port {}", port);
+            break;
+        }
+        sleep(Duration::from_millis(500)).await;
+    }
+
+    // Create tunnel
+    let (tunnel_url, mut tunnel_child) = create_tunnel(port).await?;
+
+    // Verify tunnel is accessible
+    println!("🔍 Verifying tunnel connectivity...");
+    for i in 0..10 {
+        match client.get(format!("{}/health", tunnel_url)).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                println!("✓ Tunnel verified accessible");
+                break;
+            }
+            _ => {
+                if i == 9 {
+                    tunnel_child.kill().await.ok();
+                    return Err(anyhow!("Tunnel not accessible after 10 retries"));
+                }
+                sleep(Duration::from_secs(2)).await;
+            }
+        }
+    }
+
+    // Submit job
+    let job_id = submit_job(
+        &client,
+        &state.config.backend_url,
+        &synth_api_key,
+        &tunnel_url,
+        &task_app_api_key,
+    )
+    .await?;
+
+    // Poll for completion
+    let success = poll_job(&client, &state.config.backend_url, &synth_api_key, &job_id).await?;
+
+    // Cleanup
+    println!("\n🧹 Cleaning up...");
+    tunnel_child.kill().await.ok();
+
+    println!("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    if success {
+        println!("✅ Rust GEPA smoke test PASSED!");
+        Ok(())
+    } else {
+        Err(anyhow!("Rust GEPA smoke test FAILED!"))
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    tracing_subscriber::fmt::init();
+
+    let args: Vec<String> = env::args().collect();
+    let smoke_test = args.iter().any(|a| a == "--smoke-test" || a == "-s");
+
+    let config = Config::from_env();
+    let dataset = Dataset::load();
+
+    if smoke_test {
+        run_smoke_test(config, dataset).await
+    } else {
+        println!(
+            r#"
+╭───────────────────────────────────────╮
+│  Synth Task App · Banking77           │
+│  Port: {:<5}                          │
+│  Auth: {}                        │
+╰───────────────────────────────────────╯
+"#,
+            config.port,
+            if config.api_key.is_some() { "enabled ✓" } else { "disabled ⚠" }
+        );
+
+        let state = Arc::new(AppState {
+            config,
+            dataset,
+            http_client: reqwest::Client::new(),
+        });
+
+        run_server(state).await
+    }
 }
