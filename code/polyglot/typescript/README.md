@@ -1,7 +1,7 @@
 # TypeScript Task App Example
 
 A minimal but complete Task App implementation in TypeScript for Synth prompt optimization.
-**Tested end-to-end with MIPRO optimizer.**
+**Tested end-to-end with GEPA optimizer (80% accuracy on Banking77).**
 
 ## Features
 
@@ -10,26 +10,25 @@ A minimal but complete Task App implementation in TypeScript for Synth prompt op
 - Implements `/health`, `/task_info`, and `/rollout` endpoints per OpenAPI contract
 - Prompt template rendering with `{placeholder}` substitution
 - Proper URL construction with query parameter handling
-- Works with Node.js, Deno, Bun, and Cloudflare Workers
+- Uses Bun runtime (fast, native TypeScript support)
 
 ## Quick Start
 
 ```bash
 # Install dependencies
-npm install
+bun install
 
 # Run in development (with hot reload)
-npm run dev
+bun run dev
 
-# Build and run production
-npm run build
-npm start
+# Run production
+bun run start
 
 # With authentication
-ENVIRONMENT_API_KEY=your-secret npm run dev
+ENVIRONMENT_API_KEY=your-secret bun run dev
 
 # Custom port
-PORT=3000 npm run dev
+PORT=3000 bun run dev
 ```
 
 ## Testing
@@ -67,8 +66,8 @@ curl -X POST http://localhost:8001/rollout \
 
 2. **Start the task app:**
    ```bash
-   npm install
-   ENVIRONMENT_API_KEY=test-polyglot-key npm run dev
+   bun install
+   ENVIRONMENT_API_KEY=test-polyglot-key bun run dev
    ```
 
 3. **Submit a job** using the example config:
@@ -83,8 +82,8 @@ curl -X POST http://localhost:8001/rollout \
 
 1. **Install and run:**
    ```bash
-   npm install
-   ENVIRONMENT_API_KEY=my-secret npm run dev
+   bun install
+   ENVIRONMENT_API_KEY=my-secret bun run dev
    ```
 
 2. **Expose via Cloudflare tunnel:**
@@ -161,7 +160,7 @@ The Hono framework supports Cloudflare Workers out of the box:
 
 1. **Install Wrangler:**
    ```bash
-   npm install -g wrangler
+   bun install -g wrangler
    ```
 
 2. **Create `wrangler.toml`:**
@@ -176,7 +175,7 @@ The Hono framework supports Cloudflare Workers out of the box:
 
 3. **Modify for Workers (change server start):**
    ```typescript
-   // Replace the serve() call at the bottom with:
+   // Replace the Bun serve export with:
    export default app;
    ```
 

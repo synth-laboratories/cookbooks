@@ -1,31 +1,67 @@
 /**
- * Synth Task App Example - TypeScript Implementation
+ * ╔═══════════════════════════════════════════════════════════════════════════╗
+ * ║                                                                           ║
+ * ║   Synth Task App · TypeScript                                             ║
+ * ║   Banking77 Intent Classification                                         ║
+ * ║                                                                           ║
+ * ║   A reference implementation of the Synth Task App contract.              ║
+ * ║   This app enables prompt optimization via the GEPA algorithm.            ║
+ * ║                                                                           ║
+ * ╚═══════════════════════════════════════════════════════════════════════════╝
  *
- * A minimal but complete Task App implementing the Synth contract for prompt optimization.
+ * Architecture
+ * ────────────
+ * This Task App exposes three endpoints that Synth uses during optimization:
  *
- * ## Running
- * ```bash
- * npm install
- * npm run dev  # Development with hot reload
- * npm run build && npm start  # Production
- * ```
+ *   GET  /health     → Liveness probe (unauthenticated)
+ *   GET  /task_info  → Describes the task, dataset, and scoring rubric
+ *   POST /rollout    → Executes one episode: render prompt → call LLM → score
  *
- * ## Deploying to Cloudflare Workers
- * See README.md for Cloudflare Workers deployment instructions.
+ * The optimization loop works as follows:
+ *   1. Synth proposes a candidate prompt template
+ *   2. Synth calls /rollout with that template + a seed
+ *   3. This app renders the prompt, calls the LLM, scores the response
+ *   4. Synth uses the score to evolve better prompts
+ *
+ * Running
+ * ───────
+ *   bun install && bun run dev     # Development (hot reload)
+ *   bun run start                  # Production
+ *
+ * Environment
+ * ───────────
+ *   ENVIRONMENT_API_KEY   API key for authenticating Synth requests
+ *   PORT                  Server port (default: 8001)
  */
 
 import { Hono } from "hono";
-import { serve } from "@hono/node-server";
 
-// =============================================================================
-// Types (matching OpenAPI contract)
-// =============================================================================
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Types
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+/** A labeled sample from the Banking77 dataset */
 interface Sample {
   text: string;
   label: string;
 }
 
+/** Prompt section within a template (system, user, etc.) */
+interface PromptSection {
+  role: "system" | "user" | "assistant";
+  content?: string;
+  pattern?: string;
+  order?: number;
+}
+
+/** Prompt template structure from Synth */
+interface PromptTemplate {
+  id?: string;
+  sections?: PromptSection[];
+  prompt_sections?: PromptSection[];
+}
+
+/** Rollout request from Synth */
 interface RolloutRequest {
   run_id: string;
   env: {
@@ -40,44 +76,12 @@ interface RolloutRequest {
       inference_url?: string;
       api_base?: string;
       base_url?: string;
-      prompt_template?: PromptTemplate;
-      [key: string]: unknown;
+      prompt_template?: PromptTemplate | string;
     };
   };
-  mode?: string;
 }
 
-interface PromptTemplate {
-  prompt_template_id?: string;
-  id?: string;
-  prompt_sections?: PromptSection[];
-  sections?: PromptSection[];
-  [key: string]: unknown;
-}
-
-interface PromptSection {
-  role: string;
-  content?: string;
-  pattern?: string;
-  order?: number;
-}
-
-interface RolloutResponse {
-  run_id: string;
-  trajectories: Trajectory[];
-  metrics: Metrics;
-  aborted: boolean;
-  ops_executed: number;
-}
-
-interface Trajectory {
-  env_id: string;
-  policy_id: string;
-  steps: Step[];
-  length: number;
-  inference_url: string;
-}
-
+/** A single step in a trajectory */
 interface Step {
   obs: Record<string, unknown>;
   tool_calls: ToolCall[];
@@ -86,34 +90,55 @@ interface Step {
   info: Record<string, unknown>;
 }
 
+/** Tool call from LLM response */
 interface ToolCall {
   id: string;
-  type: string;
-  function: {
-    name: string;
-    arguments: string;
+  type: "function";
+  function: { name: string; arguments: string };
+}
+
+/** Complete trajectory for one episode */
+interface Trajectory {
+  env_id: string;
+  policy_id: string;
+  steps: Step[];
+  length: number;
+  inference_url: string;
+}
+
+/** Rollout response to Synth */
+interface RolloutResponse {
+  run_id: string;
+  trajectories: Trajectory[];
+  metrics: {
+    episode_returns: number[];
+    mean_return: number;
+    num_steps: number;
+    num_episodes: number;
+    outcome_score: number;
   };
+  aborted: boolean;
+  ops_executed: number;
 }
 
-interface Metrics {
-  episode_returns: number[];
-  mean_return: number;
-  num_steps: number;
-  num_episodes: number;
-  outcome_score: number;
-}
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Configuration
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-// =============================================================================
-// Dataset
-// =============================================================================
-
-// Load dataset from JSON file
 import { readFileSync } from "fs";
-import { fileURLToPath } from "url";
 import { dirname, join } from "path";
+import { fileURLToPath } from "url";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const config = {
+  port: parseInt(process.env.PORT || "8001", 10),
+  apiKey: process.env.ENVIRONMENT_API_KEY,
+} as const;
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Dataset
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 interface Dataset {
   samples: Sample[];
@@ -121,14 +146,13 @@ interface Dataset {
 }
 
 function loadDataset(): Dataset {
-  const dataPath = join(__dirname, "../../data/banking77.json");
+  const path = join(__dirname, "../../data/banking77.json");
   try {
-    const data = JSON.parse(readFileSync(dataPath, "utf-8"));
-    console.log(`Loaded ${data.samples.length} samples from ${dataPath}`);
+    const data = JSON.parse(readFileSync(path, "utf-8"));
+    console.log(`📊 Loaded ${data.samples.length} samples`);
     return data;
   } catch {
-    // Fallback to embedded samples if file not found
-    console.warn("Dataset file not found, using embedded samples");
+    console.warn("⚠️  Dataset not found, using embedded samples");
     return {
       samples: [
         { text: "How do I reset my PIN?", label: "change_pin" },
@@ -136,360 +160,254 @@ function loadDataset(): Dataset {
         { text: "I want to cancel my card", label: "terminate_account" },
         { text: "How do I activate my new card?", label: "activate_my_card" },
         { text: "I need to dispute a transaction", label: "transaction_charged_twice" },
-        { text: "Can I get a refund?", label: "request_refund" },
-        { text: "How do I transfer money?", label: "transfer_into_account" },
-        { text: "I lost my card", label: "lost_or_stolen_card" },
-        { text: "Is there a fee for this?", label: "transfer_fee_charged" },
       ],
-      labels: ["change_pin", "card_arrival", "terminate_account", "activate_my_card",
-               "transaction_charged_twice", "request_refund", "transfer_into_account",
-               "lost_or_stolen_card", "transfer_fee_charged"],
+      labels: [
+        "change_pin", "card_arrival", "terminate_account",
+        "activate_my_card", "transaction_charged_twice",
+      ],
     };
   }
 }
 
 const dataset = loadDataset();
-const samples = dataset.samples;
-const labels = dataset.labels;
 
-function getSample(seed: number): Sample {
-  return samples[seed % samples.length];
-}
-
-// =============================================================================
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Prompt Rendering
-// =============================================================================
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-function renderTemplate(
-  template: string,
-  placeholders: Record<string, string>
-): string {
-  let result = template;
-  for (const [key, value] of Object.entries(placeholders)) {
-    result = result.replace(new RegExp(`\\{${key}\\}`, "g"), value);
-  }
-  return result;
+/** Render a template string with placeholder substitution: {key} → value */
+function render(template: string, vars: Record<string, string>): string {
+  return Object.entries(vars).reduce(
+    (text, [key, value]) => text.replaceAll(`{${key}}`, value),
+    template
+  );
 }
 
+/** Build chat messages from a policy config and sample */
 function buildMessages(
   policyConfig: RolloutRequest["policy"]["config"],
   sample: Sample
-): { role: string; content: string }[] {
-  const placeholders = {
+): Array<{ role: string; content: string }> {
+  const vars = {
     query: sample.text,
-    text: sample.text,  // Also support {{text}} placeholder
-    intents: labels.join(", "),
+    text: sample.text,
+    intents: dataset.labels.join(", "),
   };
 
-  const promptTemplate = policyConfig.prompt_template;
-  if (promptTemplate) {
-    // Handle string prompt_template (simple format used in testing)
-    if (typeof promptTemplate === "string") {
-      const renderedPrompt = renderTemplate(promptTemplate, placeholders);
-      return [
-        { role: "system", content: renderedPrompt },
-        { role: "user", content: `Query: ${sample.text}\nClassify this query using the classify tool.` },
-      ];
-    }
+  const template = policyConfig.prompt_template;
 
-    // Handle object prompt_template with sections
-    const sections =
-      promptTemplate.prompt_sections || promptTemplate.sections || [];
+  // String template (simple format)
+  if (typeof template === "string") {
+    return [
+      { role: "system", content: render(template, vars) },
+      { role: "user", content: `Query: ${sample.text}\nClassify using the classify tool.` },
+    ];
+  }
+
+  // Object template with sections
+  if (template) {
+    const sections = template.prompt_sections || template.sections || [];
     if (sections.length > 0) {
-      const sorted = [...sections].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-
-      return sorted.map((section) => {
-        const template = section.content || section.pattern || "";
-        return {
-          role: section.role,
-          content: renderTemplate(template, placeholders),
-        };
-      });
+      return [...sections]
+        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+        .map((s) => ({
+          role: s.role,
+          content: render(s.content || s.pattern || "", vars),
+        }));
     }
   }
 
-  // Default messages
+  // Default fallback
   return [
-    {
-      role: "system",
-      content:
-        "You are an expert banking assistant. Classify queries using the classify tool.",
-    },
-    {
-      role: "user",
-      content: `Query: ${sample.text}\nIntents: ${labels.join(", ")}\nClassify this query.`,
-    },
+    { role: "system", content: "You are a banking assistant. Classify queries using the classify tool." },
+    { role: "user", content: `Query: ${sample.text}\nIntents: ${vars.intents}\nClassify this query.` },
   ];
 }
 
-// =============================================================================
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // LLM Client
-// =============================================================================
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-async function callLlm(
-  inferenceUrl: string,
-  model: string,
-  messages: { role: string; content: string }[],
-  apiKey?: string,
-  llmApiKey?: string
-): Promise<{ predicted: string | null; toolCalls: ToolCall[] }> {
-  // Build URL - handle query params correctly
-  // inference_url may be "http://host/path?query" - we need "http://host/path/chat/completions?query"
-  let url: string;
-  const queryIndex = inferenceUrl.indexOf("?");
-  if (queryIndex !== -1) {
-    const base = inferenceUrl.slice(0, queryIndex).replace(/\/$/, "");
-    const query = inferenceUrl.slice(queryIndex);
-    url = `${base}/chat/completions${query}`;
-  } else {
-    url = `${inferenceUrl.replace(/\/$/, "")}/chat/completions`;
-  }
-
-  console.log(`LLM call: inference_url=${inferenceUrl} full_url=${url} model=${model}`);
-
-  const tool = {
-    type: "function",
-    function: {
-      name: "classify",
-      description: "Classify the customer query into an intent category",
-      parameters: {
-        type: "object",
-        properties: {
-          intent: { type: "string", description: "The classified intent" },
-        },
-        required: ["intent"],
+/** The classify tool that the LLM must call */
+const CLASSIFY_TOOL = {
+  type: "function" as const,
+  function: {
+    name: "classify",
+    description: "Classify the customer query into a banking intent category",
+    parameters: {
+      type: "object",
+      properties: {
+        intent: { type: "string", description: "The classified intent" },
       },
+      required: ["intent"],
     },
-  };
+  },
+};
 
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (apiKey) {
-    headers["X-API-Key"] = apiKey;
-  }
-  // Add Bearer auth for OpenAI-compatible APIs
-  if (llmApiKey) {
-    headers["Authorization"] = `Bearer ${llmApiKey}`;
-  }
+/** Call an OpenAI-compatible LLM endpoint (Synth provides authenticated inference_url) */
+async function callLLM(
+  baseUrl: string,
+  model: string,
+  messages: Array<{ role: string; content: string }>
+): Promise<{ prediction: string | null; toolCalls: ToolCall[] }> {
+  // Construct the chat completions URL, preserving any query params
+  const qIdx = baseUrl.indexOf("?");
+  const url = qIdx === -1
+    ? `${baseUrl.replace(/\/$/, "")}/chat/completions`
+    : `${baseUrl.slice(0, qIdx).replace(/\/$/, "")}/chat/completions${baseUrl.slice(qIdx)}`;
 
-  const response = await fetch(url, {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+
+  const res = await fetch(url, {
     method: "POST",
     headers,
     body: JSON.stringify({
       model,
       messages,
-      tools: [tool],
+      tools: [CLASSIFY_TOOL],
       tool_choice: "required",
       temperature: 0,
       max_tokens: 100,
     }),
   });
 
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`LLM request failed: ${response.status} - ${body}`);
+  if (!res.ok) {
+    throw new Error(`LLM error: ${res.status} ${await res.text()}`);
   }
 
-  const data = await response.json();
-  const toolCalls: ToolCall[] = [];
-  let predicted: string | null = null;
-
+  const data = await res.json();
   const choice = data.choices?.[0];
-  if (choice?.message?.tool_calls) {
-    for (const call of choice.message.tool_calls) {
-      toolCalls.push({
-        id: call.id,
-        type: "function",
-        function: {
-          name: call.function.name,
-          arguments: call.function.arguments,
-        },
-      });
+  const toolCalls: ToolCall[] = [];
+  let prediction: string | null = null;
 
-      if (call.function.name === "classify") {
-        try {
-          const args = JSON.parse(call.function.arguments);
-          predicted = args.intent;
-        } catch {}
-      }
+  // Extract tool calls and prediction
+  for (const call of choice?.message?.tool_calls || []) {
+    toolCalls.push({
+      id: call.id,
+      type: "function",
+      function: { name: call.function.name, arguments: call.function.arguments },
+    });
+    if (call.function.name === "classify") {
+      try {
+        prediction = JSON.parse(call.function.arguments).intent;
+      } catch { /* parse error, prediction stays null */ }
     }
   }
 
-  // Fallback to content
-  if (!predicted && choice?.message?.content) {
-    predicted = choice.message.content.trim();
-  }
+  // Fallback to raw content if no tool call
+  prediction ??= choice?.message?.content?.trim() || null;
 
-  return { predicted, toolCalls };
+  return { prediction, toolCalls };
 }
 
-// =============================================================================
-// App
-// =============================================================================
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// HTTP Handlers
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const app = new Hono();
 
-const API_KEY = process.env.ENVIRONMENT_API_KEY;
-const LLM_API_KEY = process.env.GROQ_API_KEY || process.env.OPENAI_API_KEY;
-
-if (API_KEY) {
-  console.log("API key authentication enabled");
-} else {
-  console.warn("No ENVIRONMENT_API_KEY set - running without authentication");
-}
-
-if (LLM_API_KEY) {
-  console.log("LLM API key configured");
-} else {
-  console.warn("No GROQ_API_KEY or OPENAI_API_KEY set - LLM calls may fail");
-}
-
-// Health endpoint (unauthenticated)
-app.get("/health", (c) => {
-  return c.json({ healthy: true });
-});
-
-// Task info endpoint (authenticated)
-app.get("/task_info", (c) => {
-  // Check authentication
-  if (API_KEY) {
-    const providedKey = c.req.header("x-api-key");
-    if (providedKey !== API_KEY) {
-      return c.json({ detail: "Invalid or missing API key" }, 401);
-    }
+/** Middleware: Verify API key for protected routes */
+function requireAuth(c: any, next: () => Promise<void>) {
+  if (config.apiKey && c.req.header("x-api-key") !== config.apiKey) {
+    return c.json({ error: { code: "unauthorised", message: "API key missing or invalid" } }, 401);
   }
+  return next();
+}
 
-  // Parse seeds from query string - handles both ?seed=0&seed=1 and ?seeds=0&seeds=1
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /health — Liveness probe
+// ─────────────────────────────────────────────────────────────────────────────
+app.get("/health", (c) => c.json({ healthy: true }));
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /task_info — Task metadata and available seeds
+// ─────────────────────────────────────────────────────────────────────────────
+app.get("/task_info", requireAuth, (c) => {
+  // Parse requested seeds from query string
   const url = new URL(c.req.url);
-  const seedParams = url.searchParams.getAll("seed");
-  const seedsParams = url.searchParams.getAll("seeds");
-  const requestedSeeds = [...seedParams, ...seedsParams]
+  const requested = [...url.searchParams.getAll("seed"), ...url.searchParams.getAll("seeds")]
     .map((s) => parseInt(s, 10))
     .filter((n) => !isNaN(n));
 
-  const datasetSize = samples.length;
-  const allSeeds = Array.from({ length: datasetSize }, (_, i) => i);
+  const allSeeds = Array.from({ length: dataset.samples.length }, (_, i) => i);
+  const seedGroups = requested.length > 0 ? requested.map((s) => [s]) : [allSeeds];
 
-  // If seeds specified, return one TaskInfo per seed; otherwise return all
-  const seedsToReturn = requestedSeeds.length > 0
-    ? requestedSeeds.map((s) => [s])
-    : [allSeeds];
-
-  const infos = seedsToReturn.map((seeds) => ({
-    task: {
-      task_id: "banking77-typescript",
-      name: "Banking77 Intent Classification (TypeScript)",
-      description: "Classify banking customer queries into intent categories",
-      version: "1.0.0",
-    },
-    environment: "banking77",
-    dataset: {
-      seeds,
-      train_count: datasetSize,
-      val_count: 0,
-      test_count: 0,
-    },
-    rubric: {
-      scoring_criteria: "exact_match",
-      metric_primary: "accuracy",
-      metric_range: [0.0, 1.0],
-    },
-    inference: {
-      mode: "tool_call",
-      supported_tools: ["classify"],
-    },
-    limits: {
-      max_response_tokens: 100,
-      timeout_seconds: 30,
-    },
-  }));
-
-  return c.json(infos);
+  return c.json(
+    seedGroups.map((seeds) => ({
+      task: {
+        task_id: "banking77-typescript",
+        name: "Banking77 Intent Classification",
+        description: "Classify banking customer queries into intent categories",
+        version: "1.0.0",
+      },
+      environment: "banking77",
+      dataset: { seeds, train_count: dataset.samples.length, val_count: 0, test_count: 0 },
+      rubric: {
+        scoring_criteria: "exact_match",
+        metric_primary: "accuracy",
+        metric_range: [0.0, 1.0],
+      },
+      inference: { mode: "tool_call", supported_tools: ["classify"] },
+      limits: { max_response_tokens: 100, timeout_seconds: 30 },
+    }))
+  );
 });
 
-// Rollout endpoint (authenticated)
-app.post("/rollout", async (c) => {
-  // Check authentication
-  if (API_KEY) {
-    const providedKey = c.req.header("x-api-key");
-    if (providedKey !== API_KEY) {
-      return c.json({ detail: "Invalid or missing API key" }, 401);
-    }
-  }
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /rollout — Execute one classification episode
+// ─────────────────────────────────────────────────────────────────────────────
+app.post("/rollout", requireAuth, async (c) => {
+  const req: RolloutRequest = await c.req.json();
+  const seed = req.env.seed ?? 0;
+  const sample = dataset.samples[seed % dataset.samples.length];
 
-  const request: RolloutRequest = await c.req.json();
-
-  // Get sample
-  const seed = request.env.seed ?? 0;
-  const sample = getSample(seed);
-
-  console.log(
-    `Rollout: run_id=${request.run_id} seed=${seed} query=${sample.text}`
-  );
-
-  // Get inference URL
-  const inferenceUrl =
-    request.policy.config.inference_url ||
-    request.policy.config.api_base ||
-    request.policy.config.base_url;
+  // Resolve inference URL
+  const inferenceUrl = req.policy.config.inference_url
+    || req.policy.config.api_base
+    || req.policy.config.base_url;
 
   if (!inferenceUrl) {
-    return c.json({ detail: "Missing inference_url in policy.config" }, 400);
+    return c.json({ error: "Missing inference_url in policy.config" }, 400);
   }
 
-  const model = (request.policy.config.model as string) || "gpt-4o-mini";
+  const model = req.policy.config.model || "gpt-4o-mini";
+  const messages = buildMessages(req.policy.config, sample);
 
-  // Build messages and call LLM
-  const messages = buildMessages(request.policy.config, sample);
-
-  let predicted: string | null = null;
+  // Call LLM
+  let prediction: string | null = null;
   let toolCalls: ToolCall[] = [];
 
   try {
-    const providedKey = c.req.header("x-api-key");
-    const result = await callLlm(inferenceUrl, model, messages, providedKey, LLM_API_KEY);
-    predicted = result.predicted;
+    const result = await callLLM(inferenceUrl, model, messages);
+    prediction = result.prediction;
     toolCalls = result.toolCalls;
-  } catch (error) {
-    console.warn("LLM call failed:", error);
-    return c.json({ detail: `LLM call failed: ${error}` }, 502);
+  } catch (err) {
+    console.error("❌ LLM call failed:", err);
+    return c.json({ error: `LLM call failed: ${err}` }, 502);
   }
 
-  // Compute reward
-  const isCorrect =
-    predicted?.toLowerCase() === sample.label.toLowerCase();
-  const reward = isCorrect ? 1.0 : 0.0;
+  // Score: exact match on intent label
+  const correct = prediction?.toLowerCase() === sample.label.toLowerCase();
+  const reward = correct ? 1.0 : 0.0;
 
-  console.log(
-    `Result: expected=${sample.label} predicted=${predicted} correct=${isCorrect} reward=${reward}`
-  );
+  console.log(`🎯 seed=${seed} expected="${sample.label}" predicted="${prediction}" ${correct ? "✓" : "✗"}`);
 
   // Build response
   const response: RolloutResponse = {
-    run_id: request.run_id,
-    trajectories: [
-      {
-        env_id: `task::train::${seed}`,
-        policy_id:
-          request.policy.policy_id || request.policy.policy_name || "policy",
-        steps: [
-          {
-            obs: { query: sample.text, index: seed },
-            tool_calls: toolCalls,
-            reward,
-            done: true,
-            info: {
-              expected: sample.label,
-              predicted,
-              correct: isCorrect,
-            },
-          },
-        ],
-        length: 1,
-        inference_url: inferenceUrl,
-      },
-    ],
+    run_id: req.run_id,
+    trajectories: [{
+      env_id: `task::train::${seed}`,
+      policy_id: req.policy.policy_id || req.policy.policy_name || "policy",
+      inference_url: inferenceUrl,
+      length: 1,
+      steps: [{
+        obs: { query: sample.text, index: seed },
+        tool_calls: toolCalls,
+        reward,
+        done: true,
+        info: { expected: sample.label, predicted: prediction, correct },
+      }],
+    }],
     metrics: {
       episode_returns: [reward],
       mean_return: reward,
@@ -504,16 +422,19 @@ app.post("/rollout", async (c) => {
   return c.json(response);
 });
 
-// =============================================================================
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Server
-// =============================================================================
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-const port = parseInt(process.env.PORT || "8001", 10);
+console.log(`
+╭───────────────────────────────────────╮
+│  Synth Task App · Banking77           │
+│  Port: ${String(config.port).padEnd(5)}                          │
+│  Auth: ${config.apiKey ? "enabled ✓" : "disabled ⚠"}                        │
+╰───────────────────────────────────────╯
+`);
 
-console.log(`Dataset loaded: ${samples.length} samples`);
-console.log(`Starting task app on port ${port}`);
-
-serve({
+export default {
+  port: config.port,
   fetch: app.fetch,
-  port,
-});
+};
