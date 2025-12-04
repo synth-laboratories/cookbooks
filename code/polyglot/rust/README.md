@@ -1,20 +1,22 @@
 # Rust Task App Example
 
 A minimal but complete Task App implementation in Rust for Synth prompt optimization.
-**Tested end-to-end with MIPRO optimizer** - achieves 100% accuracy on Banking77 classification.
+**Tested end-to-end with GEPA optimizer** - achieves 70% accuracy on Banking77 classification.
 
 ## Features
 
+- Single Rust binary - server + integrated smoke test
 - Implements `/health`, `/task_info`, and `/rollout` endpoints per OpenAPI contract
-- Embedded sample dataset (Banking77-style)
+- Loads dataset from shared `data/banking77.json` (99 samples)
 - Prompt template rendering with `{placeholder}` substitution
 - LLM calls via `inference_url` (with proper query parameter handling)
 - Tool-based classification with reward computation
+- **All-in-one smoke test** - no Python required!
 
 ## Quick Start
 
 ```bash
-# Build and run
+# Build and run (server mode)
 cargo run --release
 
 # With authentication (recommended)
@@ -23,6 +25,23 @@ ENVIRONMENT_API_KEY=your-secret-key cargo run --release
 # Custom port
 PORT=3000 cargo run --release
 ```
+
+## End-to-End Smoke Test
+
+Run a complete GEPA optimization against the production backend:
+
+```bash
+# Requires SYNTH_API_KEY and ENVIRONMENT_API_KEY set
+# (auto-loads from ../../../../synth-ai/.env)
+cargo run --release -- --smoke-test
+```
+
+This will:
+1. Start the task app server
+2. Create a Cloudflare tunnel automatically
+3. Submit a GEPA job to production
+4. Poll until completion (typically 2-5 minutes)
+5. Report final accuracy
 
 ## Testing Locally
 
