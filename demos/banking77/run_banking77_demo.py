@@ -862,15 +862,13 @@ async def run():
     """Run the comprehensive Banking77 GEPA demo."""
     start_time = time.time()
 
-    api_key = "sk-synth-2c8bbea8bf068588664f97a7488db1b25392e5b80ea60092"
-    task_app_api_key = "sk-synth-2c8bbea8bf068588664f97a7488db1b25392e5b80ea60092"
+    api_key = os.environ["SYNTH_API_KEY"]
+    task_app_api_key = os.environ["ENVIRONMENT_API_KEY"]
 
     if not api_key:
         raise ValueError("SYNTH_API_KEY must be set")
     if not task_app_api_key:
         raise ValueError("ENVIRONMENT_API_KEY or SYNTH_API_KEY must be set")
-
-    # Determine tunnel mode
 
 
     # Set environment variables for task app
