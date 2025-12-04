@@ -1,4 +1,13 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.11,<3.14"
+# dependencies = [
+#     "synth-ai>=0.2.26",
+#     "python-dotenv>=1.0.0",
+#     "httpx>=0.24.0",
+#     "click>=8.1.0",
+# ]
+# ///
 """
 Comprehensive Banking77 GEPA Demo
 
@@ -16,15 +25,10 @@ data for in-depth analysis:
 Results are saved to results/ directory for analysis.
 """
 
-from __future__ import annotations
-
 import asyncio
 import json
 import os
-import sys
-import tempfile
 import time
-from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -53,26 +57,12 @@ except Exception:
 logging.getLogger("uvicorn.access").disabled = True
 logging.getLogger("uvicorn.access").setLevel(logging.CRITICAL)
 
-# Load env vars
-monorepo_env = Path(__file__).parent.parent.parent / "monorepo" / "backend" / ".env.dev"
-if monorepo_env.exists():
-    load_dotenv(dotenv_path=monorepo_env, override=False)
+# Load env vars from .env file in current directory or parent directories
 load_dotenv(override=False)
-
-# Add synth-ai to path - try multiple possible locations
-possible_synth_ai_roots = [
-    Path(__file__).parent.parent.parent / "synth-ai",  # cookbooks/../synth-ai
-    Path(__file__).parent.parent.parent.parent / "synth-ai",  # cookbooks/../../synth-ai
-    Path(__file__).parent.parent.parent.parent / "research" / "synth-ai",  # research/synth-ai
-]
-for synth_ai_root in possible_synth_ai_roots:
-    if synth_ai_root.exists():
-        if str(synth_ai_root) not in sys.path:
-            sys.path.insert(0, str(synth_ai_root))
-        break
 
 from synth_ai.sdk.api.train.prompt_learning import PromptLearningJob
 from synth_ai.sdk.task.in_process import InProcessTaskApp
+from synth_ai.core.urls import BACKEND_URL_BASE
 
 
 class Banking77DemoTracker:
@@ -872,23 +862,17 @@ async def run():
     """Run the comprehensive Banking77 GEPA demo."""
     start_time = time.time()
 
-    backend_url = os.getenv("BACKEND_URL") or "http://localhost:8000"
-    api_key = os.getenv("SYNTH_API_KEY")
-    task_app_api_key = os.getenv("ENVIRONMENT_API_KEY") or os.getenv("SYNTH_API_KEY")
+    api_key = os.environ["SYNTH_API_KEY"]
+    task_app_api_key = os.environ["ENVIRONMENT_API_KEY"]
 
     if not api_key:
         raise ValueError("SYNTH_API_KEY must be set")
     if not task_app_api_key:
         raise ValueError("ENVIRONMENT_API_KEY or SYNTH_API_KEY must be set")
 
-    # Determine tunnel mode
-    is_backend_localhost = backend_url.startswith("http://localhost") or backend_url.startswith("http://127.0.0.1")
-    tunnel_mode = "local" if is_backend_localhost else "named"
-
-    print(f"Backend URL: {backend_url}")
-    print(f"Tunnel mode: {tunnel_mode}")
 
     # Set environment variables for task app
+    os.environ["SYNTH_API_KEY"] = api_key
     os.environ["ENVIRONMENT_API_KEY"] = task_app_api_key
     if os.getenv("GROQ_API_KEY"):
         os.environ["GROQ_API_KEY"] = os.getenv("GROQ_API_KEY")
@@ -896,34 +880,13 @@ async def run():
         os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
     os.environ["HF_DATASETS_OFFLINE"] = "1"
 
-    # Path to banking77 task app - try multiple possible locations
-    possible_task_app_paths = [
-        Path(__file__).parent.parent.parent / "research" / "walkthroughs" / "gepa" / "task_app" / "banking77_task_app.py",
-        Path(__file__).parent.parent.parent.parent / "research" / "walkthroughs" / "gepa" / "task_app" / "banking77_task_app.py",
-        Path(__file__).parent.parent / "dev" / "task_apps" / "banking77" / "banking77_task_app.py",
-        Path(__file__).parent.parent.parent / "cookbooks" / "dev" / "task_apps" / "banking77" / "banking77_task_app.py",
-    ]
-    task_app_path = None
-    for path in possible_task_app_paths:
-        if path.exists():
-            task_app_path = path
-            break
-    if not task_app_path:
-        raise FileNotFoundError(
-            f"Task app not found. Tried:\n" + "\n".join(f"  - {p}" for p in possible_task_app_paths)
-        )
+    # Path to banking77 task app (in same directory as this script)
+    task_app_path = Path(__file__).parent / "banking77_task_app.py"
+    if not task_app_path.exists():
+        raise FileNotFoundError(f"Task app not found at {task_app_path}")
 
     # Load TOML config - check for --test flag to use low-budget test config
-    use_test_config = "--test" in sys.argv or "-t" in sys.argv
-    if use_test_config:
-        config_path = Path(__file__).parent / "banking77_gepa_demo_test.toml"
-        print("🧪 Using TEST config (low budget for quick testing)")
-    else:
-        config_path = Path(__file__).parent / "banking77_gepa_demo.toml"
-        print("📊 Using FULL config (high budget for comprehensive run)")
-
-    if not config_path.exists():
-        raise FileNotFoundError(f"Config not found: {config_path}")
+    config_path = Path(__file__).parent / "banking77_gepa.toml"
 
     # Create output directory
     output_dir = Path(__file__).parent / "results"
@@ -935,7 +898,6 @@ async def run():
         port=8120,
         auto_find_port=True,
         api_key=task_app_api_key,
-        tunnel_mode=tunnel_mode,
         health_check_timeout=120.0,
     ) as task_app:
         print(f"InProcessTaskApp started at {task_app.url}")
@@ -947,13 +909,12 @@ async def run():
 
         job = PromptLearningJob.from_config(
             config_path=str(config_path),
-            backend_url=backend_url,
+            backend_url=BACKEND_URL_BASE,
             api_key=api_key,
             task_app_api_key=task_app_api_key,
             overrides=overrides,
         )
 
-        print(f"Submitting GEPA job to {backend_url}...")
         job_id = job.submit()
         print(f"✓ Job submitted: {job_id}")
 
@@ -965,7 +926,7 @@ async def run():
             import httpx
             from synth_ai.sdk.api.train.utils import ensure_api_base
 
-            api_base = ensure_api_base(backend_url)
+            api_base = ensure_api_base(BACKEND_URL_BASE)
             events_stream_url = f"{api_base}/prompt-learning/online/jobs/{job_id}/events/stream"
             job_url = f"{api_base}/prompt-learning/online/jobs/{job_id}"
 
@@ -1043,7 +1004,6 @@ async def run():
                     # Don't raise - fall through to polling fallback
 
         # Use SSE as primary mechanism
-        print("📡 Using SSE streaming (not polling)...")
         result = None
         try:
             await stream_events()
@@ -1053,8 +1013,24 @@ async def run():
             traceback.print_exc()
         
         # Always check job status after SSE
-        result = await asyncio.to_thread(job.get_status)
-        print(f"📊 Job status after SSE: {result.get('status')}")
+        result = None
+        try:
+            result = await asyncio.to_thread(job.get_status)
+            print(f"📊 Job status after SSE: {result.get('status')}")
+        except Exception as e:
+            # Handle SSL certificate errors on macOS Homebrew Python
+            if "SSL" in str(e) or "certificate" in str(e).lower():
+                print(f"⚠️  SSL error fetching status (macOS cert issue): {type(e).__name__}")
+                if tracker.status == "complete":
+                    print("   Job completed via SSE, continuing...")
+                    result = {"status": "completed", "job_id": job_id}
+                elif tracker.status == "failed":
+                    print("   Job failed via SSE")
+                    result = {"status": "failed", "job_id": job_id}
+                else:
+                    raise
+            else:
+                raise
         
         # If job is still running, wait for it to complete
         if result.get("status") not in ("succeeded", "completed", "failed", "cancelled"):
@@ -1091,10 +1067,27 @@ async def run():
         from synth_ai.sdk.learning.prompt_learning_client import PromptLearningClient
         import httpx
 
-        api_base = ensure_api_base(backend_url)
-        client = PromptLearningClient(api_base, api_key)
-        prompt_results = await client.get_prompts(job_id)
-        scoring_summary = await client.get_scoring_summary(job_id)
+        api_base = ensure_api_base(BACKEND_URL_BASE)
+
+        # Try to fetch results, but handle SSL errors gracefully
+        prompt_results = None
+        scoring_summary = None
+        job_results = None
+
+        try:
+            client = PromptLearningClient(api_base, api_key)
+            prompt_results = await client.get_prompts(job_id)
+            scoring_summary = await client.get_scoring_summary(job_id)
+        except Exception as e:
+            if "SSL" in str(e) or "certificate" in str(e).lower():
+                print(f"⚠️  SSL error fetching detailed results (macOS cert issue)")
+                print(f"   Job completed successfully but cannot fetch results due to SSL.")
+                print(f"   To fix: Run 'pip install certifi' and set SSL_CERT_FILE env var")
+                print(f"   Job ID: {job_id}")
+                print(f"\n🎉 Demo completed! Job {job_id} finished successfully.")
+                return
+            else:
+                raise
 
         # Get job results
         job_results = await asyncio.to_thread(job.get_results)
