@@ -33,9 +33,6 @@ algorithm = "mipro"
 task_app_url = "https://synth-laboratories-dev--synth-banking77-web-web.modal.run"
 task_app_id = "banking77"
 
-# Directory to save optimization results
-results_folder = "results"
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Initial Prompt Pattern
 # ─────────────────────────────────────────────────────────────────────────────
@@ -114,9 +111,9 @@ batch_size = 6
 # Maximum concurrent evaluations
 max_concurrent = 10
 
-# Meta-model for generating instruction candidates
-meta_model = "gpt-4o-mini"
-meta_model_provider = "openai"
+# Proposer settings (controls meta-model selection)
+proposer_effort = "LOW"  # LOW_CONTEXT, LOW, MEDIUM, HIGH - controls proposer model
+proposer_output_tokens = "FAST"  # RAPID, FAST, SLOW - controls output token limit
 
 # Threshold for selecting few-shot examples
 few_shot_score_threshold = 0.85
@@ -131,20 +128,20 @@ duplicate_retry_limit = 10
 # Seed Pools for Different Phases
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Bootstrap training seeds (for initial instruction generation)
-bootstrap_train_seeds = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+# Bootstrap training seeds (for initial instruction generation) - using range notation
+bootstrap_train_seeds = { start = 0, end = 10 }  # Equivalent to [0, 1, ..., 9]
 
 # Online pool seeds (for TPE optimization)
-online_pool = [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
+online_pool = { start = 10, end = 25 }  # Equivalent to [10, 11, ..., 24]
 
 # Test pool seeds (held-out for final evaluation)
-test_pool = [25, 26, 27, 28, 29]
+test_pool = { start = 25, end = 30 }  # Equivalent to [25, 26, 27, 28, 29]
 
 # Validation seeds (for top-K evaluation)
-val_seeds = [30, 31, 32, 33, 34]
+val_seeds = { start = 30, end = 35 }  # Equivalent to [30, 31, 32, 33, 34]
 
 # Reference pool (for meta-prompt context)
-reference_pool = [30, 31, 32, 33, 34]
+reference_pool = { start = 30, end = 35 }  # Equivalent to [30, 31, 32, 33, 34]
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TPE Hyperparameters
