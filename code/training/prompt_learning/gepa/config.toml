@@ -78,6 +78,8 @@ pool = "train"
 [prompt_learning.gepa]
 env_name = "banking77"
 proposer_type = "dspy"  # Uses DSPy-style prompt proposals
+proposer_effort = "LOW"  # LOW_CONTEXT, LOW, MEDIUM, HIGH - controls proposer model selection
+proposer_output_tokens = "FAST"  # RAPID, FAST, SLOW - controls output token limit
 
 # Rollout configuration (how prompts are evaluated)
 [prompt_learning.gepa.rollout]
@@ -94,11 +96,11 @@ minibatch_size = 10
 
 # Evaluation configuration (train/validation split)
 [prompt_learning.gepa.evaluation]
-# Training seeds (samples used for optimization)
-seeds = [50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69]
+# Training seeds (samples used for optimization) - using range notation for clarity
+seeds = { start = 50, end = 70 }  # Equivalent to [50, 51, ..., 69]
 
 # Validation seeds (held-out samples for final evaluation)
-validation_seeds = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+validation_seeds = { start = 0, end = 20 }  # Equivalent to [0, 1, ..., 19]
 validation_pool = "validation"
 
 # Number of top prompts to evaluate on validation set
@@ -108,11 +110,7 @@ validation_top_k = 2
 [prompt_learning.gepa.mutation]
 # Probability of mutating each prompt component
 rate = 0.3
-
-# LLM for generating mutations (using Groq for fast mutations)
-llm_model = "openai/gpt-oss-120b"
-llm_provider = "groq"
-llm_inference_url = "https://api.groq.com/openai/v1"
+# Note: Mutation model is controlled by proposer_effort at the gepa level
 
 # Population configuration (evolution parameters)
 [prompt_learning.gepa.population]
