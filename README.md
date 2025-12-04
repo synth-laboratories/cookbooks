@@ -2,19 +2,22 @@
 
 ## ✅ Ready
 
-**GEPA AND MIRPO Fully In-Process**
+**Demos**
+- `code/demos/banking77/` — Banking77 intent classification with GEPA (end-to-end demo)
+
+**GEPA & MIPRO In-Process**
 - `code/training/prompt_learning/gepa/` — GEPA walkthrough
 - `code/training/prompt_learning/mipro/` — MIPRO walkthrough
 
-**GEPA with Any Language (CLI)**
-- `code/polyglot/python/` — Python
-- `code/polyglot/rust/` — Rust
-- `code/polyglot/typescript/` — TypeScript
-- `code/polyglot/go/` — Go
+**Polyglot Task Apps**
+- `code/polyglot/typescript/` — TypeScript (Bun) — tested with GEPA, 80% accuracy
+- `code/polyglot/rust/` — Rust (Axum)
+- `code/polyglot/go/` — Go (stdlib)
+- `code/polyglot/python/` — Python (Flask)
 
 ## ⏳ Pending
 
-- `code/training/prompt_learning/crafter/` — GEPA for Crafter (blocked on output extraction bug)
+- `code/training/prompt_learning/crafter/` — GEPA for Crafter
 - `code/training/prompt_learning/sdk/` — SDK examples
 - `code/training/prompt_learning/cli/` — CLI walkthrough
 - `code/training/sft/` — SFT cookbook

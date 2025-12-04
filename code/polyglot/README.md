@@ -1,6 +1,6 @@
-# Polyglot Task App (Official Cookbook)
+# Polyglot Task Apps
 
-Banking77 intent-classification Task App implementations in multiple languages (Rust, Go, TypeScript, Zig) for Synth prompt optimization with MIPRO/GEPA.
+Banking77 intent-classification Task App implementations in multiple languages (Rust, Go, TypeScript) for Synth prompt optimization with MIPRO/GEPA.
 
 ## What you'll build
 - An HTTP Task App that serves `/health`, `/task_info`, and `/rollout`
@@ -8,15 +8,14 @@ Banking77 intent-classification Task App implementations in multiple languages (
 - Deployable locally or via tunnel; compatible with Synth prompt-optimization jobs
 
 ## Prerequisites
-- Language toolchains: Cargo (Rust), Go 1.21+, Node 18+ (or Bun/Deno), Zig 0.13+
-- API keys: `ENVIRONMENT_API_KEY` (task app auth), `OPENAI_API_KEY` or `GROQ_API_KEY` (LLM calls)
+- Language toolchains: Cargo (Rust), Go 1.21+, Bun 1.0+ (TypeScript)
+- API keys: `ENVIRONMENT_API_KEY` (task app auth)
 - Optional: `cloudflared` (or any HTTPS tunnel) to expose localhost
 
 ## Quick start (pick one)
 - Rust: `cd rust && cargo run --release`
 - Go: `cd go && go run .`
-- TypeScript (Node): `cd typescript && npm install && npm run dev`
-- Zig: `cd zig && zig build -Doptimize=ReleaseFast && ./zig-out/bin/synth-task-app`
+- TypeScript: `cd typescript && bun install && bun run dev`
 
 Expose via tunnel (example):
 ```bash
@@ -61,15 +60,14 @@ A Task App is an HTTP service that evaluates prompts for Synth's MIPRO and GEPA 
 |----------|-----------|--------------|-------|
 | [Rust](./rust/) | Axum | axum, tokio, reqwest | Fast, type-safe |
 | [Go](./go/) | stdlib | None | Single binary, no deps |
-| [TypeScript](./typescript/) | Hono | hono | Works with Node, Deno, Bun, Workers |
-| [Zig](./zig/) | stdlib | None | Single static binary, cross-compile |
+| [TypeScript](./typescript/) | Hono + Bun | hono | Tested with GEPA (80% accuracy) |
 
 ## Quick Start
 
 ### 1. Choose a Language
 
 ```bash
-cd rust/      # or go/, typescript/, zig/
+cd rust/      # or go/, typescript/
 ```
 
 ### 2. Build and Run
@@ -86,12 +84,7 @@ go build && ./synth-task-app
 
 **TypeScript:**
 ```bash
-npm install && npm run dev
-```
-
-**Zig:**
-```bash
-zig build -Doptimize=ReleaseFast && ./zig-out/bin/synth-task-app
+bun install && bun run dev
 ```
 
 ### 3. Expose via Tunnel
@@ -223,13 +216,9 @@ polyglot/
 │   ├── go.mod
 │   ├── main.go
 │   └── README.md
-├── typescript/
-│   ├── package.json
-│   ├── src/index.ts
-│   └── README.md
-└── zig/
-    ├── build.zig
-    ├── src/main.zig
+└── typescript/
+    ├── package.json
+    ├── src/index.ts
     └── README.md
 ```
 
