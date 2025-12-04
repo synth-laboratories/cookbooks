@@ -1,0 +1,76 @@
+# GEPA Smoke Test Configuration for Rust Task App
+
+[prompt_learning]
+algorithm = "gepa"
+task_app_url = "${TASK_APP_URL}"
+task_app_api_key = "${TASK_APP_API_KEY}"
+
+[prompt_learning.initial_prompt]
+id = "banking77_rust_smoke"
+name = "Banking77 Classification (Rust Smoke Test)"
+
+[[prompt_learning.initial_prompt.messages]]
+role = "system"
+pattern = "You are an expert banking assistant. Classify queries using the classify tool."
+order = 0
+
+[[prompt_learning.initial_prompt.messages]]
+role = "user"
+pattern = "Query: {query}\nIntents: {intents}\nClassify this query."
+order = 1
+
+[prompt_learning.initial_prompt.wildcards]
+query = "REQUIRED"
+intents = "REQUIRED"
+
+[prompt_learning.policy]
+inference_mode = "synth_hosted"
+model = "gpt-4.1-nano"
+provider = "openai"
+temperature = 0.0
+max_completion_tokens = 64
+
+[prompt_learning.gepa]
+env_name = "banking77"
+proposer_effort = "MEDIUM"
+proposer_output_tokens = "FAST"
+dspy_temperature = 1.0
+synth_temperature = 1.0
+gepa_ai_temperature = 1.0
+
+[prompt_learning.gepa.evaluation]
+seeds = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+validation_seeds = [200, 201, 202, 203, 204]
+validation_pool = "train"
+validation_top_k = 2
+
+[prompt_learning.gepa.rollout]
+budget = 100
+max_concurrent = 20
+minibatch_size = 3
+
+[prompt_learning.gepa.mutation]
+rate = 0.3
+
+[prompt_learning.gepa.population]
+initial_size = 4
+num_generations = 5
+children_per_generation = 2
+crossover_rate = 0.5
+selection_pressure = 1.0
+patience_generations = 5
+
+[prompt_learning.gepa.archive]
+size = 64
+pareto_set_size = 10
+pareto_eps = 1e-6
+feedback_fraction = 0.231
+
+[prompt_learning.gepa.token]
+max_limit = 4096
+counting_model = "gpt-4"
+enforce_limit = false
+
+[prompt_learning.termination_config]
+max_cost_usd = 5.0
+max_trials = 100
