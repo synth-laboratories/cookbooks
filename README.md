@@ -11,7 +11,7 @@
 
 **Polyglot Task Apps**
 - `code/polyglot/typescript/` — TypeScript (Bun) — tested with GEPA, 80% accuracy
-- `code/polyglot/rust/` — Rust (Axum)
+- `code/polyglot/rust/` — Rust (Axum) — tested with GEPA, 70% accuracy, `--smoke-test` flag
 - `code/polyglot/go/` — Go (stdlib)
 - `code/polyglot/python/` — Python (Flask)
 
