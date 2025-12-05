@@ -886,7 +886,7 @@ async def run():
         raise FileNotFoundError(f"Task app not found at {task_app_path}")
 
     # Load TOML config - check for --test flag to use low-budget test config
-    config_path = Path(__file__).parent / "banking77_gepa.toml"
+    config_path = Path(__file__).parent / "banking77_gepa_demo.toml"
 
     # Create output directory
     output_dir = Path(__file__).parent / "results"
