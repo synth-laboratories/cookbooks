@@ -1,0 +1,839 @@
+# ResearchAgent GEPA/MIPRO with Synth - Context Documentation
+
+## Overview
+
+The ResearchAgent uses synth-ai's GEPA and MIPRO algorithms for prompt/pipeline optimization. This document consolidates all context about how the researchagent integrates with synth-ai's optimization tools.
+
+---
+
+## Architecture: Task App + Interceptor Pattern
+
+### Critical Architecture Understanding
+
+**MIPRO/GEPA DO NOT send prompt_template, sections, OR messages to your Task App!**
+
+The optimizer uses an "Interceptor Pattern":
+1. MIPRO/GEPA generates optimized instructions and few-shot examples
+2. These are registered with the BACKEND INTERCEPTOR (not sent to you!)
+3. Your task app receives ONLY: seed, inference_url, model, temperature
+4. YOU MUST define your own baseline messages in YOUR code
+5. When you call inference_url, the INTERCEPTOR transforms your messages
+
+**✅ CORRECT**: Define baseline messages in your task_app.py, call inference_url
+**❌ WRONG**: Look for prompt_template or sections in the /rollout payload
+
+### Flow Diagram
+
+```
+┌─────────────────┐                     ┌──────────────────┐
+│  MIPRO/GEPA     │                     │  INTERCEPTOR     │
+│  Optimizer      │ ─── registers ───>  │  (in backend)    │
+│                 │     prompt deltas   │  Stores: trial   │
+│  Proposes new   │                     │  → template map  │
+│  instructions   │                     │                  │
+└────────┬────────┘                     └────────┬─────────┘
+         │                                       │
+         │ /rollout with:                        │
+         │ • seed                                │
+         │ • inference_url                       │
+         │ • NO prompt_template!                 │
+         ▼                                       │
+┌──────────────────────────────────────┐         │
+│          YOUR TASK APP               │         │
+│                                      │         │
+│  1. Load sample using seed           │         │
+│  2. Build YOUR OWN messages          │         │
+│  3. Call inference_url ──────────────────────>│
+│     with YOUR messages               │         │
+│                                      │         ▼
+│                                      │ ┌───────────────────┐
+│                                      │ │ Interceptor:      │
+│                                      │ │ • Transforms msgs │
+│                                      │ │ • Adds few-shots  │
+│                                      │ │ • Calls real LLM  │
+│                                      │ └───────────────────┘
+│  4. Get LLM response  <──────────────────────┘
+│  5. Compute reward (0/1)             │
+│  6. Return trajectory                │
+└──────────────────────────────────────┘
+```
+
+**Key insight**: You define your baseline prompt in YOUR code. MIPRO optimizes by REPLACING parts of it via the interceptor.
+
+---
+
+## Daytona Environment Setup
+
+### Critical Networking Rules
+
+**⛔ CLOUDFLARE TUNNELS DO NOT WORK IN DAYTONA**
+
+You are running in a Daytona sandbox. Cloudflare quick tunnels require UDP/QUIC egress which is BLOCKED. Do NOT attempt to:
+- Install cloudflared
+- Run cloudflared tunnel
+- Use trycloudflare.com URLs
+- Use ngrok, localtunnel, or other tunneling tools
+
+Instead, a PUBLIC TUNNEL URL is ALREADY configured for you!
+
+### Step 1: Read Pre-configured Tunnel URL
+
+```python
+import json
+import os
+from pathlib import Path
+
+TUNNEL_CONFIG_PATH = Path("/app/config/tunnel_config.json")
+
+if TUNNEL_CONFIG_PATH.exists():
+    with open(TUNNEL_CONFIG_PATH) as f:
+        tunnel_config = json.load(f)
+    
+    TASK_APP_URL = tunnel_config["task_app_url"]  # e.g., https://8000-sandbox123.proxy.daytona.works
+    TASK_APP_PORT = tunnel_config.get("task_app_port", 8000)  # Usually 8000
+    
+    print(f"✅ Daytona tunnel URL: {TASK_APP_URL}")
+    print(f"✅ Task app port: {TASK_APP_PORT}")
+else:
+    # Only if NOT in Daytona (local development)
+    TASK_APP_PORT = 8000
+    TASK_APP_URL = None  # Will use Cloudflare later
+```
+
+### Step 2: Bind Task App Correctly
+
+```python
+# CRITICAL: Use 0.0.0.0 (all interfaces), NOT 127.0.0.1
+# CRITICAL: Use port from tunnel_config.json (default 8000), NOT 8102
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("TASK_APP_PORT", "8000"))  # NOT 8102!
+    uvicorn.run("task_app:app", host="0.0.0.0", port=port)  # NOT 127.0.0.1!
+```
+
+### Step 3: Use Daytona URL for Optimization
+
+```python
+from synth_ai.sdk.task import InProcessTaskApp
+from synth_ai.sdk.learning.prompt_learning import PromptLearningJob
+
+# If in Daytona, use preconfigured mode
+if TASK_APP_URL:
+    async with InProcessTaskApp(
+        task_app_path="task_app.py",
+        port=TASK_APP_PORT,
+        host="0.0.0.0",  # Bind to all interfaces!
+        tunnel_mode="preconfigured",  # Use the Daytona URL, don't create tunnel
+        preconfigured_url=TASK_APP_URL,
+        skip_tunnel_verification=True,
+        api_key=env_key,  # ENVIRONMENT_API_KEY
+    ) as task_app:
+        # task_app.url is now the Daytona preview URL
+        
+        # ⚠️ CRITICAL: Pass parent_job_id for job correlation
+        import os
+        job_metadata = {}
+        parent_job_id = os.environ.get("JOB_ID")  # Research agent job ID (already set in container)
+        session_id = os.environ.get("SESSION_ID")  # Session ID (already set in container)
+        if parent_job_id:
+            job_metadata["parent_job_id"] = parent_job_id
+            job_metadata["parent_job_type"] = "research_agent"
+        if session_id:
+            job_metadata["session_id"] = session_id
+        
+        job = PromptLearningJob.from_config(
+            config_path="train_config.toml",
+            task_app_url=task_app.url,
+            api_key=synth_key,  # SYNTH_API_KEY
+            task_app_api_key=env_key,  # ENVIRONMENT_API_KEY
+            overrides={"metadata": job_metadata} if job_metadata else None,  # ⚠️ CRITICAL: Pass parent correlation
+        )
+        await job.run()
+```
+
+### Environment Variables (Set in Daytona)
+
+```bash
+# Check these are set:
+echo $SYNTH_TASK_APP_URL   # The Daytona preview URL
+echo $SYNTH_TUNNEL_MODE    # Should be "preconfigured"
+echo $TASK_APP_PORT        # Should be "8000"
+echo $JOB_ID               # ⚠️ CRITICAL: Research agent job ID (for correlation)
+echo $SESSION_ID           # Session ID (for usage tracking)
+```
+
+---
+
+## API Keys: SYNTH_API_KEY vs ENVIRONMENT_API_KEY
+
+### Critical Distinction
+
+**⛔ NEVER DO THIS:**
+```python
+env_key = os.environ.get("ENVIRONMENT_API_KEY") or synth_key
+```
+
+**ENVIRONMENT_API_KEY is NOT the same as SYNTH_API_KEY!**
+
+### How Keys Work
+
+- `SYNTH_API_KEY` = Your account API key → Authenticates YOU to the Synth backend
+- `ENVIRONMENT_API_KEY` = A random shared secret → Authenticates the Synth backend TO YOUR TASK APP
+
+### Minting ENVIRONMENT_API_KEY
+
+```python
+from synth_ai.sdk.learning.rl.secrets import mint_environment_api_key
+import os
+
+# SYNTH_API_KEY should already be in your environment
+synth_key = os.environ.get("SYNTH_API_KEY")
+if not synth_key:
+    raise RuntimeError("SYNTH_API_KEY not set!")
+
+# ENVIRONMENT_API_KEY must be minted - it's a random token
+env_key = os.environ.get("ENVIRONMENT_API_KEY")
+if not env_key:
+    env_key = mint_environment_api_key()  # Generates 64-char hex token
+    os.environ["ENVIRONMENT_API_KEY"] = env_key
+    print(f"✅ Minted new ENVIRONMENT_API_KEY: {env_key[:8]}...")
+else:
+    print(f"✅ Using existing ENVIRONMENT_API_KEY: {env_key[:8]}...")
+
+# Now use BOTH keys correctly:
+# - synth_key → api_key parameter (your account auth)
+# - env_key → task_app_api_key parameter (task app shared secret)
+```
+
+---
+
+## Task App Requirements
+
+### Required Endpoints
+
+| Endpoint | Method | Required? | Purpose |
+|----------|--------|-----------|---------|
+| `/health` | GET | ✅ Required | Health check - must return `{"healthy": true}` |
+| `/task_info` | GET | ✅ Required | Returns task metadata - **MUST support `?seeds=` query param** |
+| `/rollout` | POST | ✅ Required | Evaluates a prompt on dataset samples and returns rewards |
+| `/metadata` | GET | ⚡ Optional | Returns task app source code for better instruction generation |
+
+### /health Endpoint
+
+```python
+@app.get("/health")
+async def health():
+    return {"healthy": True}
+```
+
+### /task_info Endpoint (Multi-Seed Support Required!)
+
+**⚠️ COMMON FAILURE MODE - READ CAREFULLY:**
+
+The `/task_info` endpoint is called with multiple seeds like:
+```
+GET /task_info?seeds=0&seeds=1&seeds=2&seeds=3...
+```
+
+**Your endpoint MUST return a dict keyed by seed STRING, NOT a single object!**
+
+❌ **WRONG** (will fail immediately):
+```python
+return {"task_id": "...", "state": "ready"}  # Single object = FAIL
+```
+
+✅ **CORRECT**:
+```python
+return {"0": {"task_id": "...", "seed": 0}, "1": {"task_id": "...", "seed": 1}, ...}
+```
+
+```python
+from fastapi import Query
+from typing import Optional, List
+
+@app.get("/task_info")
+async def task_info(seeds: Optional[List[str]] = Query(None)):
+    """
+    Return task info. If seeds query param is provided, return info per seed.
+    
+    CRITICAL: The Synth backend sends seeds as REPEATED query params, NOT comma-separated!
+    
+    Examples:
+        GET /task_info → {"task_id": "...", ...}
+        GET /task_info?seeds=0&seeds=1&seeds=2 → {"0": {...}, "1": {...}, "2": {...}}
+    """
+    base_info = {
+        "task_id": "banking77-classifier",
+        "description": "Banking77 intent classification",
+        "metrics": ["accuracy"],
+        "state": "ready",
+        "num_samples": len(DATASET),
+    }
+    
+    # CRITICAL: Handle repeated query params (e.g., ?seeds=0&seeds=1&seeds=2)
+    if seeds:
+        seed_list = []
+        for s in seeds:
+            for part in s.split(","):  # Also handle comma-separated just in case
+                if part.strip().isdigit():
+                    seed_list.append(int(part.strip()))
+        # Return dict keyed by STRING seed (must be strings for JSON keys)
+        return {str(seed): {**base_info, "seed": seed} for seed in seed_list}
+    
+    return base_info
+```
+
+### /rollout Endpoint (Main Evaluation Endpoint)
+
+**The optimizer sends:**
+```json
+{
+  "run_id": "unique-id",
+  "env": {"seed": 0, "config": {...}},
+  "policy": {
+    "policy_id": "...",
+    "config": {
+      "inference_url": "https://synth-proxy.../v1",  // ← USE THIS!
+      "model": "openai/gpt-oss-120b",
+      "provider": "groq",
+      "temperature": 0.0,
+      "trace_correlation_id": "cid-xxx"  // ← Extract this!
+    }
+  }
+}
+```
+
+**⚠️ CRITICAL: URL Parsing for inference_url**
+
+The `inference_url` often contains query parameters like `?cid=xxx`. If you naively append `/chat/completions`, you'll create an INVALID URL:
+
+```
+# ❌ WRONG - creates malformed URL
+f"{inference_url}/chat/completions"
+→ https://proxy.../v1/abc?cid=xxx/chat/completions  ← BROKEN!
+
+# ✅ CORRECT - parse URL and append to PATH
+from urllib.parse import urlsplit, urlunsplit
+parsed = urlsplit(inference_url)
+chat_path = parsed.path.rstrip("/") + "/chat/completions"
+chat_url = urlunsplit((parsed.scheme, parsed.netloc, chat_path, parsed.query, parsed.fragment))
+→ https://proxy.../v1/abc/chat/completions?cid=xxx  ← CORRECT!
+```
+
+**⚠️ CRITICAL: trace_correlation_id in Rollout Responses**
+
+Every `/rollout` response **MUST include `trace_correlation_id` in 3 places**:
+1. **Top-level**: `response["trace_correlation_id"]`
+2. **In each trajectory**: `trajectory["trace_correlation_id"]`
+3. **In pipeline_metadata**: `response["pipeline_metadata"]["trace_correlation_id"]`
+
+Extract it from `policy_config["trace_correlation_id"]` or the URL query param `?cid=`:
+
+```python
+trace_cid = policy_config.get("trace_correlation_id")
+if not trace_cid and inference_url:
+    from urllib.parse import parse_qs, urlsplit
+    parsed = urlsplit(inference_url)
+    trace_cid = parse_qs(parsed.query).get("cid", [None])[0]
+```
+
+**⚠️ RECOMMENDED: Use TOOL CALLING for Structured Output**
+
+Tool calling is the canonical way to get structured predictions. The normalizer extracts output from:
+1. **`step.tool_calls[].arguments`** ← PREFERRED (structured JSON)
+2. **`message.content`** ← Fallback (plain text)
+
+**Example tool spec:**
+```python
+TOOL_NAME = "classify_intent"
+tool_spec = [{
+    "type": "function",
+    "function": {
+        "name": TOOL_NAME,
+        "description": "Submit your classification prediction.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "intent": {"type": "string", "description": "The predicted intent"}
+            },
+            "required": ["intent"],
+        },
+    },
+}]
+```
+
+**Call LLM with tools:**
+```python
+resp = await client.post(chat_url, json={
+    "model": model,
+    "messages": messages,
+    "tools": tool_spec,
+    "tool_choice": "auto",  # ← NOT "required" - models may respond with text
+})
+```
+
+**Parse response and put in step.tool_calls:**
+```python
+raw_tool_calls = message.get("tool_calls", [])
+for tc in raw_tool_calls:
+    fn = tc.get("function", {})
+    args = json.loads(fn.get("arguments", "{}"))
+    tool_calls_response.append({
+        "id": tc.get("id"),
+        "name": fn.get("name"),
+        "arguments": args,  # ← Parsed dict, NOT string!
+    })
+
+# In response:
+"steps": [{
+    "tool_calls": tool_calls_response,  # ← PUT HERE!
+    ...
+}]
+```
+
+### /metadata Endpoint (Optional but Recommended)
+
+The MIPRO proposer calls `/metadata` to understand your task app's implementation. This helps it generate better optimized instructions.
+
+```python
+import inspect
+
+@app.get("/metadata")
+async def metadata():
+    """Return program code for MIPRO proposer to understand the task.
+    
+    This helps the optimizer generate better instructions by understanding
+    how your task app works. Optional but recommended.
+    """
+    # Get the source code of this module
+    try:
+        import sys
+        module = sys.modules.get("__main__")
+        if module and hasattr(module, "__file__"):
+            with open(module.__file__, "r") as f:
+                program_code = f.read()
+        else:
+            program_code = inspect.getsource(sys.modules[__name__])
+    except Exception:
+        program_code = "# Source code unavailable"
+    
+    return {
+        "program_code": program_code,
+        "module_path": __name__,
+        "extraction_method": "inspect",
+    }
+```
+
+---
+
+## Job Correlation (Critical for Frontend)
+
+When submitting training jobs, you MUST pass `parent_job_id` in metadata to link them back to this research agent run:
+
+- `JOB_ID` environment variable contains the research agent job ID (e.g., `ra_xxx`)
+- `SESSION_ID` environment variable contains the session ID (if set)
+- Pass these via `overrides={"metadata": {"parent_job_id": os.environ.get("JOB_ID"), ...}}`
+- This enables the frontend to show which training jobs were spawned by which research agent
+
+---
+
+## Optimization Tools: GEPA vs MIPRO
+
+### GEPA (Genetic Evolution of Prompt Architectures)
+
+**Type**: Prompt Optimization (fast, cheap)
+**Status**: ✅ Enabled
+**Description**: Evolutionary search - generates prompt variations through genetic algorithms
+
+**Characteristics**:
+- Simple and fast (no multi-step reasoning)
+- Example-focused (learns from actual task performance)
+- Feedback-aware (incorporates success/failure signals)
+- Works well when examples are representative
+- Can introduce terminology drift (purpose vs intent)
+- No program structure awareness
+- Limited to 5 examples (may miss edge cases)
+
+**Proposer Modes**:
+- `synth` (default) - Synth-branded proposer (inherits from GEPA-AI proposer)
+- `gepa-ai` - GEPA-AI library proposer
+- `dspy` - DSPy proposer
+
+### MIPRO (Meta-Instruction PROposer)
+
+**Type**: Prompt Optimization (fast, cheap)
+**Status**: ✅ Enabled
+**Description**: Bayesian prompt search - uses meta-learning with bootstrap phase, TPE optimization, and mini-batch evaluation
+
+**Characteristics**:
+- Program-Aware: Understands program structure and module roles
+- Multi-Step Reasoning: Analyzes program → module → instruction
+- History-Aware: Learns from previous instruction performance
+- Data-Grounded: Uses actual task examples and scores
+- Structured Output: Returns JSON with instruction + rationale + demo indices
+- Complex: Requires program code to be effective
+- Slower: Multi-step reasoning adds latency
+- Token-Heavy: Large prompts consume many tokens
+
+**Proposer Modes**:
+- `synth` (default) - Synth-branded proposer (inherits from DSPy proposer)
+- `builtin` - Built-in MIPRO proposer
+- `dspy` - DSPy proposer
+
+---
+
+## Synth Proposers: GEPA vs MIPRO Comparison
+
+### GEPA Synth Proposer
+
+**Implementation**: Synth-branded proposer that inherits from GEPA-AI proposer, uses same prompt structure
+
+**Prompt Template** (EXACT MATCH with GEPA-AI library):
+```
+I provided an assistant with the following instructions to perform a task for me:
+```
+{baseline_instruction}
+```
+
+The following are examples of different task inputs provided to the assistant along with the assistant's response for each of them, and some feedback on how the assistant's response could be better:
+```
+{formatted_examples}
+```
+
+Your task is to write a new instruction for the assistant.
+
+Read the inputs carefully and identify the input format and infer detailed task description about the task I wish to solve with the assistant.
+
+Read all the assistant responses and the corresponding feedback. Identify all niche and domain specific factual information about the task and include it in the instruction, as a lot of it may not be available to the assistant in the future. The assistant may have utilized a generalizable strategy to solve the task, if so, include that in the instruction as well.
+
+Provide the new instructions within ``` blocks.
+```
+
+**Key Features**:
+- Extracts rollout examples (max 5)
+- Generates feedback based on correctness/score
+- Uses markdown formatting for examples
+- Extracts instruction from ``` blocks
+- Preserves placeholders (e.g., `{query}`, `{tool_name}`)
+
+### MIPRO Synth Proposer
+
+**Implementation**: Synth-branded proposer that inherits from DSPy proposer, uses similar complex prompt structure
+
+**Multi-Step Reasoning** (if program_code available):
+1. **Describe Program**: Analyzes program code to understand task
+2. **Describe Module**: Analyzes specific module within program
+3. **Generate Instruction**: Uses program/module descriptions + task demos + trial logs
+
+**Prompt Structure**:
+```
+You are the Synth Research GroundedProposer. Propose **data-aware** instruction patches for the target stage.
+
+## Target Stage
+Stage: {stage_id} (module: {module_id})
+Instruction slots: {max_instruction_slots} | Demo slots: {max_demo_slots}
+Iteration: {iteration_index} | Batch {batch_number}/{total_batches}
+
+## Pipeline Overview
+{pipeline_overview}
+
+## Dataset Sketch
+{dataset_summary}
+
+## PROGRAM DESCRIPTION:
+{program_description}  # From Step 1
+
+## MODULE:
+{module_signature}  # e.g., "Classifier(query) -> category"
+
+## MODULE DESCRIPTION:
+{module_description}  # From Step 2
+
+## PROGRAM CODE:
+{program_code}  # Truncated to 2000 chars
+
+## Baseline Instruction
+{baseline_instruction}  # Truncated to 800 chars
+
+## Baseline Messages
+{formatted_baseline_messages}
+
+## TASK DEMO(S):
+{task_demos}  # Formatted examples with scores
+
+## Trial Logs
+{trial_logs}  # History of previous instructions and their performance
+
+## Stage Instruction Leaderboard
+{stage_history_summary}  # Top-performing instructions
+
+## Synth Research Teleprompter Boost
+{tip}  # Random optimization tip
+
+## Avoid recent instructions
+{previous_batch_instructions}  # Last 5 instructions to avoid duplicating
+
+## Synth Research Blueprint
+Return JSON: {"instruction": str, "demo_indices": [seed_ids], "rationale": str}.
+- Root your instruction in dataset patterns, edge-cases, or evaluator feedback.
+- Use conditional phrasing (When/If/For...).
+- Specify the exact action the assistant must take.
+- Keep to 15-35 words; preserve placeholders (e.g., {query}).
+- Reference demo seeds by ID only (from available list).
+
+Available demo seeds: {available_demo_seeds}
+```
+
+**Key Differences from DSPy Library**:
+- Uses markdown sections instead of DSPy Signature fields
+- Different task demo formatting
+- Different instruction history formatting
+- Missing feature toggling (randomly enable/disable features)
+
+---
+
+## Configuration: MIPRO Example
+
+```toml
+[prompt_learning]
+algorithm = "mipro"
+task_app_url = ""  # Will be filled by InProcessTaskApp
+task_app_id = "banking77-classifier"
+
+# Initial prompt template
+[prompt_learning.initial_prompt]
+id = "baseline"
+name = "Baseline Prompt"
+
+[[prompt_learning.initial_prompt.messages]]
+role = "system"
+pattern = "You are a banking assistant. Classify the customer query into one of the banking intents."
+order = 0
+
+[[prompt_learning.initial_prompt.messages]]
+role = "user"
+pattern = "Customer says: {query}\nProvide only the single intent label."
+order = 1
+
+# Tell the optimizer which placeholders are required
+[prompt_learning.initial_prompt.wildcards]
+query = "REQUIRED"
+
+# Policy model configuration
+[prompt_learning.policy]
+inference_mode = "synth_hosted"
+model = "openai/gpt-oss-120b"
+provider = "groq"
+temperature = 0.0
+max_completion_tokens = 256
+policy_name = "banking77-mipro"
+
+# Environment/dataset configuration
+[prompt_learning.env_config]
+pool = "train"
+
+# MIPRO-specific settings
+[prompt_learning.mipro]
+env_name = "banking77"
+num_iterations = 5
+num_evaluations_per_iteration = 5
+batch_size = 6
+max_concurrent = 16
+
+# Meta-model for generating instruction proposals
+meta_model = "llama-3.3-70b-versatile"
+meta_model_provider = "groq"
+meta_temperature = 0.7
+
+# ⚠️ CRITICAL: SEED POOL SIZING FOR PRODUCTION
+#
+# For optimization gains that LAST in production, use LARGE seed pools!
+# Small pools (5-15) cause overfitting - prompts win on test samples but fail on real traffic.
+#
+# PRODUCTION RECOMMENDATIONS:
+# - bootstrap_train_seeds: 50-100 seeds (for robust few-shot selection)
+# - online_pool: 100-300 seeds (for reliable evaluation signal)
+# - val_seeds: 30-50 seeds (for validation checkpoint decisions)
+# - test_pool: 50-100 seeds (for final held-out measurement)
+# - reference_pool: 10-20 seeds (for meta-prompt context)
+
+# PRODUCTION seed pools (use these for real optimization):
+bootstrap_train_seeds = [0, 1, 2, ..., 49]  # 50 seeds
+online_pool = [50, 51, 52, ..., 149]  # 100 seeds
+val_seeds = [150, 151, 152, ..., 179]  # 30 seeds
+test_pool = [180, 181, 182, ..., 229]  # 50 seeds
+reference_pool = [230, 231, 232, ..., 244]  # 15 seeds
+
+# ⚠️ REQUIRED: Module and Stage configuration
+# MIPRO requires at least one module with one stage
+[[prompt_learning.mipro.modules]]
+module_id = "banking77_classification"
+description = "Banking77 intent classification module"
+
+[[prompt_learning.mipro.modules.stages]]
+stage_id = "classify"
+description = "Classify customer query into banking intent"
+baseline_instruction = "You are a banking assistant. Classify the customer query into one of the banking intents."
+max_instruction_slots = 2
+max_demo_slots = 3
+
+# ⚠️ CRITICAL: Each stage MUST have its own [policy] section!
+[prompt_learning.mipro.modules.stages.policy]
+model = "openai/gpt-oss-120b"
+provider = "groq"
+temperature = 0.0
+max_completion_tokens = 256
+```
+
+---
+
+## Dataset Sizing Guidance
+
+### Production vs. Test Runs
+
+**For test runs** (quick iteration, debugging):
+- Use your best judgment for small sample sizes (5-20 seeds)
+- Focus on fast iteration and validating the pipeline works
+- The user has NOT configured test run sizes - use your discretion
+
+**For final production runs** (when optimizing for real gains):
+- **Recommended minimums** for production: 50 train, 50 val, 50 reference seeds
+- Larger datasets (100+) generally produce more robust, generalizable improvements
+- Smaller datasets may lead to overfitting and gains that don't transfer
+- When unsure, prefer larger datasets - optimization gains from small samples often don't hold
+
+### Why This Matters
+
+Prompt optimization can easily overfit to small datasets. Using adequate train/val/reference pools ensures:
+1. **Generalization**: Improvements hold on unseen data
+2. **Statistical significance**: Results are meaningful, not noise
+3. **Robustness**: Optimized prompts work across diverse inputs
+
+---
+
+## Optimization Procedure (Step-by-Step)
+
+**CRITICAL**: You MUST use the `synth-ai` library for MIPRO/GEPA optimization. Do NOT try to implement the algorithm yourself or use `apply_patch` to create mock scripts.
+
+### Step-by-Step Workflow:
+
+1. **Check for datasets** at `/app/data/manifest.json`
+   - If no datasets exist, download from HuggingFace using `datasets.load_dataset()`
+   - **IMPORTANT**: HuggingFace datasets often use integer labels with a ClassLabel feature
+   - To get string label names: `ds.features['label'].names[label_int]` or use `ds.features['label'].int2str(label_int)`
+   - Example for Banking77: `label_text = ds.features['label'].int2str(item['label'])`
+   
+2. **Create a Task App** (see examples in "How to Use synth-ai" section above)
+   - Save it as `/app/repo/task_app.py`
+   - The task app evaluates prompts against your dataset
+   
+3. **Create a TOML config** for synth-ai
+   - Save it as `/app/repo/train_config.toml`
+   
+4. **Run optimization using synth-ai**:
+   ```bash
+   cd /app/repo
+   pip install synth-ai
+   synth train --type prompt_learning --config train_config.toml
+   ```
+   
+5. **Save outputs to `/app/artifacts/`**
+
+---
+
+## Required Artifacts
+
+**Primary outputs:**
+- `/app/artifacts/optimization_report.json` (**REQUIRED** - structured report, see format below)
+- `/app/artifacts/optimization_report.md` (human-readable summary)
+- `/app/artifacts/results.json` (raw job results from synth-ai)
+- `/app/artifacts/optimized_prompt.txt` (the optimized prompt text/JSON)
+
+**For reproducibility (CRITICAL!):**
+- `/app/artifacts/*task_app.py` (your task app source code)
+- `/app/artifacts/*_config.toml` (your MIPRO/GEPA config files)
+- `/app/artifacts/run_*.py` (your runner scripts)
+
+### Standard Optimization Report Format
+
+You MUST generate `optimization_report.json` with this structure:
+
+```python
+import json
+from datetime import datetime
+
+report = {
+    "job_id": "<job_id from synth-ai>",
+    "algorithm": "mipro",  # or "gepa"
+    "task_name": "banking77-classification",
+    "best_score": 0.85,
+    "success": True,
+    "baseline_score": 0.70,
+    "improvement_percent": 21.4,
+    "mean_score": 0.78,
+    "std_score": 0.05,
+    "min_score": 0.65,
+    "max_score": 0.85,
+    "best_prompt": "<your optimized prompt or JSON>",
+    "baseline_prompt": "<original baseline prompt>",
+    "policy_model": "gpt-4o-mini",
+    "policy_provider": "openai",
+    "meta_model": "llama-3.3-70b-versatile",  # For MIPRO
+    "meta_provider": "groq",  # For MIPRO
+    "n_bootstrap": 20,
+    "n_online": 10,
+    "n_test": 50,
+    "n_val": 20,
+    "prompts_evaluated": 50,
+    "prompts_improved": 12,
+    "demos_used": 5,
+    "trace": [...],  # Optional: detailed trace of optimization
+}
+```
+
+---
+
+## Event Types
+
+The synth-ai backend emits various events during optimization. These event types are useful for tracking progress:
+
+### GEPA Events
+
+- `prompt.learning.proposal.scored` - emitted for each proposal candidate
+- `prompt.learning.optimized.scored` - emitted for optimized candidates
+- `prompt.learning.progress` - progress updates
+- `prompt.learning.completed` - job completion
+- `prompt.learning.results.summary`, `prompt.learning.final.results`, `prompt.learning.best.prompt` - results events
+- `prompt.learning.gepa.candidate.evaluated` - candidate evaluation
+- `prompt.learning.gepa.frontier_updated` - frontier update
+- `prompt.learning.gepa.baseline` - baseline evaluation
+- `prompt.learning.gepa.termination.triggered` - termination triggered
+- `prompt.learning.gepa.complete` - GEPA completion
+
+### MIPRO Events
+
+- `prompt.learning.mipro.variation.score` - variation scoring
+- `prompt.learning.mipro.generation.start/complete` - generation lifecycle
+
+---
+
+## Key Takeaways
+
+1. **Architecture**: Task App + Interceptor pattern - you define baseline messages, optimizer transforms them via interceptor
+2. **Daytona**: Use preconfigured tunnel URL, don't try Cloudflare tunnels
+3. **API Keys**: SYNTH_API_KEY (account auth) vs ENVIRONMENT_API_KEY (task app secret) - both required, different purposes
+4. **Task App**: Must implement `/health`, `/task_info` (with multi-seed support), `/rollout` (with trace_correlation_id), optionally `/metadata`
+5. **inference_url**: Parse URL correctly, don't naively append paths
+6. **Tool Calling**: Preferred method for structured output
+7. **Job Correlation**: Pass parent_job_id in metadata to link training jobs to research agent runs
+8. **Seed Pools**: Use large pools (50+) for production, small pools (5-20) only for testing
+9. **GEPA vs MIPRO**: GEPA is simpler/faster, MIPRO is program-aware/more complex
+10. **Artifacts**: Must generate optimization_report.json with standard format
+
+---
+
+## Additional Resources
+
+For more information about synth-ai's GEPA and MIPRO algorithms, see the synth-ai documentation and SDK examples.
+
