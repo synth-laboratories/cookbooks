@@ -50,11 +50,8 @@ uv run python products/adas/test_banking77.py
 
 ### 3. Nano Banana Image Style Matching (Contrastive Judge)
 
-Demonstrates optimizing image generation prompts using Nano Banana (gemini-2.5-flash-image) with a contrastive VLM judge to match Pokemon art style.
-
-This example is **planned but not yet shipped** as a runnable script in this repo.
-When it lands, it will follow the same pattern as the other cookbooks: authenticated
-ADAS endpoints only, no local-only hacks.
+Demonstrates optimizing image generation prompts using Nano Banana (`gemini-2.5-flash-image`)
+with a contrastive VLM judge (`gpt-4o`) to match Pokemon art style.
 
 **Gold Set:** `lambdalabs/pokemon-blip-captions` (HuggingFace)
 - 5 tasks (Pokemon-style creature generation)
@@ -62,16 +59,15 @@ ADAS endpoints only, no local-only hacks.
 - Contrastive judge mode with VLM (gpt-4o) comparing generated images to gold examples
 - Policy model: `gemini-2.5-flash-image` (Nano Banana)
 
-**Run (future):**
+**Run:**
 ```bash
-# Python (downloads gold images from HuggingFace, generates dataset, runs optimization)
 uv run python products/adas/test_image_style_matching.py
 ```
 
-**Requirements (future example):**
+**Requirements:**
 - `GEMINI_API_KEY` - Required for Nano Banana image generation
 - `SYNTH_API_KEY` - Required for ADAS job submission
-- `datasets` and `pillow` packages: `pip install datasets pillow`
+- Optional for real gold images: `datasets` and `pillow` packages: `pip install datasets pillow`
 - VLM-capable judge model (gpt-4o, gemini-2.5-flash, etc.) for image comparison
 
 ## Dataset Format
@@ -127,4 +123,3 @@ ADAS uses `ADASTaskSet` JSON format:
 
 - `SYNTH_API_KEY` - Your Synth API key
 - `BACKEND_BASE_URL` (optional) - Backend URL override for dev/local; defaults to production
-

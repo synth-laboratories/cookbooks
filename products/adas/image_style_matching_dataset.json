@@ -1,0 +1,74 @@
+{
+  "version": "1.0",
+  "metadata": {
+    "name": "nano-banana-pokemon-style-matching",
+    "description": "Match Pokemon art style using Nano Banana (gemini-2.5-flash-image) with contrastive VLM judge. Gold images from lambdalabs/pokemon-blip-captions HuggingFace dataset."
+  },
+  "initial_prompt": "Generate an image.",
+  "tasks": [
+    {
+      "id": "pokemon_dragon",
+      "input": {
+        "subject": "dragon",
+        "style": "pokemon",
+        "description": "A dragon creature in Pokemon art style"
+      }
+    },
+    {
+      "id": "pokemon_cat",
+      "input": {
+        "subject": "cat",
+        "style": "pokemon",
+        "description": "A cat creature in Pokemon art style"
+      }
+    }
+  ],
+  "gold_outputs": [
+    {
+      "task_id": "pokemon_dragon",
+      "output": {
+        "image_url": "data:image/png;base64,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",
+        "note": "Reference Pokemon image - Placeholder reference image 1"
+      }
+    },
+    {
+      "task_id": "pokemon_cat",
+      "output": {
+        "image_url": "data:image/png;base64,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",
+        "note": "Reference Pokemon image - Placeholder reference image 2"
+      }
+    },
+    {
+      "output": {
+        "image_url": "data:image/png;base64,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",
+        "note": "Standalone style reference - Placeholder reference image 3"
+      }
+    }
+  ],
+  "default_rubric": {
+    "outcome": {
+      "criteria": [
+        {
+          "name": "pokemon_style_match",
+          "description": "The image should match Pokemon art style: anime-inspired, colorful, cute creature design with expressive features. Score 1.0 for authentic Pokemon style, 0.5 for anime-adjacent style, 0.0 for photorealistic or non-anime style.",
+          "weight": 1.0
+        },
+        {
+          "name": "subject_recognition",
+          "description": "The creature should be clearly recognizable as the requested subject (dragon, cat, bird, etc.) while maintaining Pokemon aesthetic. Score 1.0 if subject is clear, 0.5 if somewhat recognizable, 0.0 if unclear.",
+          "weight": 0.8
+        },
+        {
+          "name": "visual_quality",
+          "description": "The image should be high quality: clean lines, vibrant colors, proper composition. Score 1.0 for high quality, 0.5 for acceptable with minor issues, 0.0 for poor quality.",
+          "weight": 0.5
+        }
+      ]
+    }
+  },
+  "judge_config": {
+    "mode": "contrastive",
+    "model": "gpt-4o",
+    "provider": "openai"
+  }
+}
