@@ -1,0 +1,433 @@
+# Cookbooks Migration Plan
+
+## Goal
+Move all examples and applications from `synth-ai/examples/` into `cookbooks/` repository, following OpenAI Cookbook principles. Structure cookbooks with official `code/` folder for docs-ready examples and `dev/` folder for work-in-progress.
+
+## Directory Structure
+
+```
+cookbooks/
+├── README.md                    # Main cookbooks index
+├── LICENSE                      # Already exists
+├── plan.txt                     # This file
+├── code/                        # Official cookbooks (goes into docs)
+│   ├── task-apps/
+│   │   ├── banking77-polyglot/  # Multi-language Banking77 examples
+│   │   │   ├── rust/
+│   │   │   ├── go/
+│   │   │   ├── typescript/
+│   │   │   ├── zig/
+│   │   │   └── README.md
+│   │   ├── banking77-python/    # Python Banking77 task app
+│   │   ├── math-single-step/
+│   │   └── ...
+│   ├── prompt-optimization/
+│   │   ├── banking77-gepa/
+│   │   ├── banking77-mipro/
+│   │   └── ...
+│   ├── reinforcement-learning/
+│   │   ├── math-rl-qwen/
+│   │   └── ...
+│   └── supervised-fine-tuning/
+│       └── ...
+└── dev/                         # Work-in-progress (will eventually move to code/)
+    ├── banking77-polyglot/      # Start here - migrate from synth-ai/examples/polyglot
+    └── ...
+```
+
+## Official vs Dev Classification
+
+**OFFICIAL (goes in `code/`):**
+- ✅ **Polyglot Task Apps** (`synth-ai/examples/polyglot/`) → `cookbooks/code/task-apps/polyglot/`
+- ✅ **LangProBe Examples** (`synth-ai/examples/task_apps/other_langprobe_benchmarks/`) → `cookbooks/code/task-apps/langprobe/`
+
+**DEV (goes in `dev/`):**
+- All other examples (Python task apps, GEPA, MIPRO, RL, SFT, baselines, blog posts)
+
+## Phase 1: Banking77 Polyglot Cookbooks (START HERE - OFFICIAL)
+
+### 1.1 Create Structure
+```bash
+mkdir -p cookbooks/code/task-apps/polyglot
+```
+
+### 1.2 Migrate from synth-ai/examples/polyglot
+
+**Source:** `synth-ai/examples/polyglot/`
+
+**Target:** `cookbooks/code/task-apps/polyglot/`
+
+**Files to migrate:**
+- `README.md` → Update and move to cookbooks
+- `data/banking77.json` → Keep shared dataset
+- `rust/` → Entire directory
+- `go/` → Entire directory  
+- `typescript/` → Entire directory
+- `zig/` → Entire directory
+- `plan.txt` → Reference material (keep in synth-ai for now)
+- `MIPRO_IMPLEMENTATION_ANALYSIS.md` → Move to cookbooks/docs/
+
+**Steps:**
+1. Copy all language implementations to `cookbooks/dev/task-apps/banking77-polyglot/`
+2. Update README.md to follow cookbook format:
+   - Short intro (what you'll build)
+   - Prerequisites
+   - Quick start per language
+   - Link to docs page
+3. Clean up:
+   - Remove build artifacts (target/, node_modules/, zig-out/, etc.)
+   - Ensure .gitignore covers these
+   - Update paths in READMEs to reflect new location
+
+### 1.3 Finalize Official Version
+
+Since this is already marked as official:
+1. Ensure all language implementations run end-to-end
+2. Add comprehensive README.md following standards.md
+3. Create docs page in Mintlify (see Mintlify Integration section)
+4. Update all GitHub links to point to cookbooks repo
+
+## Phase 2: LangProBe Examples (OFFICIAL)
+
+### 2.1 Migrate LangProBe Task Apps
+
+**Source:** `synth-ai/examples/task_apps/other_langprobe_benchmarks/`
+
+**Target:** `cookbooks/code/task-apps/langprobe/`
+
+**Examples to migrate:**
+- `gsm8k_task_app.py` → `gsm8k/`
+- `heartdisease_task_app.py` → `heartdisease/`
+- `iris_task_app.py` → `iris/`
+- Baselines (`*_baseline.py`) → Keep with each example
+
+**Steps:**
+1. Create structure: `cookbooks/code/task-apps/langprobe/{gsm8k,heartdisease,iris}/`
+2. Copy task app + baseline to each directory
+3. Update imports to use `synth-ai` package
+4. Create README.md per example following standards.md
+5. Create Mintlify docs pages
+
+## Phase 3: Python Banking77 Task App (DEV)
+
+### 3.1 Migrate Python Implementation
+
+**Source:** `synth-ai/examples/task_apps/banking77/`
+
+**Target:** `cookbooks/dev/task-apps/banking77-python/`
+
+**Files:**
+- `banking77_task_app.py` → `main.py` (rename for clarity)
+- `deploy_wrapper.py` → Keep if needed
+- `__init__.py` → Remove (not needed in cookbooks)
+
+**Steps:**
+1. Copy to cookbooks
+2. Update imports to use `synth-ai` package (not relative imports)
+3. Create README.md with:
+   - What it does
+   - Prerequisites
+   - Run command
+   - Link to docs
+4. Add requirements.txt if needed
+
+## Phase 4: Other Task Apps (DEV)
+
+Migrate in order of priority:
+
+1. **Math Task Apps**
+   - `synth-ai/examples/task_apps/math_task/` → `cookbooks/dev/task-apps/math-single-step/`
+   - `synth-ai/examples/task_apps/math/` → `cookbooks/dev/task-apps/math/` (if different)
+
+2. **Multi-Step Task Apps**
+   - `synth-ai/examples/task_apps/banking77_3step/` → `cookbooks/dev/task-apps/banking77-3step/`
+   - `synth-ai/examples/task_apps/banking77_5step/` → `cookbooks/dev/task-apps/banking77-5step/`
+   - Similar for hotpotqa, heartdisease
+
+3. **Other Benchmarks**
+   - `synth-ai/examples/task_apps/crafter/` → `cookbooks/dev/task-apps/crafter/`
+   - `synth-ai/examples/task_apps/pokemon_red/` → `cookbooks/dev/task-apps/pokemon-red/`
+   - `synth-ai/examples/task_apps/verilog/` → `cookbooks/dev/task-apps/verilog/`
+
+## Phase 5: Prompt Optimization Examples (DEV)
+
+### 4.1 GEPA Examples
+
+**Source:** `synth-ai/examples/gepa/`
+
+**Target:** `cookbooks/dev/prompt-optimization/gepa/`
+
+**Examples:**
+- `banking77_pipeline_gepa.toml` → `cookbooks/dev/prompt-optimization/gepa/banking77-pipeline/`
+- `multi_stage_gepa_example.toml` → `cookbooks/dev/prompt-optimization/gepa/multi-stage/`
+
+### 4.2 MIPRO Examples
+
+**Source:** `synth-ai/examples/blog_posts/mipro/`
+
+**Target:** `cookbooks/dev/prompt-optimization/mipro/`
+
+## Phase 6: RL and SFT Examples (DEV)
+
+### 5.1 Reinforcement Learning
+
+**Source:** `synth-ai/examples/rl/`
+
+**Target:** `cookbooks/dev/reinforcement-learning/`
+
+### 5.2 Supervised Fine-Tuning
+
+**Source:** `synth-ai/examples/sft/`
+
+**Target:** `cookbooks/dev/supervised-fine-tuning/`
+
+## Phase 7: Baselines (DEV)
+
+**Source:** `synth-ai/examples/baseline/`
+
+**Target:** `cookbooks/dev/baselines/`
+
+These are simpler examples, good for quickstart guides.
+
+## Phase 8: Blog Post Examples (DEV)
+
+**Source:** `synth-ai/examples/blog_posts/`
+
+**Decision:** These may stay in synth-ai as they're tied to specific blog posts, OR move to `cookbooks/dev/blog-posts/` if they're useful standalone examples.
+
+## Migration Checklist Per Example
+
+For each example being migrated:
+
+- [ ] Copy code to appropriate `cookbooks/dev/` or `cookbooks/code/` location
+- [ ] Update imports to use `synth-ai` package (not relative imports)
+- [ ] Create/update README.md with:
+  - [ ] What you'll build (1-2 sentences)
+  - [ ] Prerequisites (Python version, packages, API keys)
+  - [ ] Quick start (single run command)
+  - [ ] Link to docs page (when created)
+- [ ] Add requirements.txt or pyproject.toml if needed
+- [ ] Remove repo-specific cruft:
+  - [ ] Relative imports
+  - [ ] Hardcoded paths
+  - [ ] Internal test utilities
+- [ ] Test that example runs end-to-end
+- [ ] Update synth-ai README.md to point to cookbooks
+- [ ] Add stub in synth-ai/examples/ pointing to cookbooks location
+
+## Cleanup in synth-ai
+
+After migration:
+
+1. **Remove examples/ directory** (or keep minimal stubs)
+2. **Update synth-ai README.md:**
+   ```markdown
+   ## Examples & Cookbooks
+   
+   For runnable examples, see the Synth Cookbooks:
+   
+   - 📚 Docs: https://docs.usesynth.ai/cookbooks
+   - 💻 Code: https://github.com/synth-laboratories/cookbooks
+   ```
+3. **Keep only essential examples** in synth-ai:
+   - Minimal quickstart (if any)
+   - Test fixtures
+   - Internal development examples
+
+## Mintlify Docs Integration
+
+### Structure
+
+Cookbooks will be integrated into Mintlify docs following OpenAI Cookbook patterns:
+
+**Navigation Structure** (in `docs/docs.json`):
+```json
+{
+  "group": "Cookbooks",
+  "pages": [
+    "cookbooks/overview",
+    {
+      "group": "Task Apps",
+      "pages": [
+        "cookbooks/task-apps/polyglot",
+        "cookbooks/task-apps/langprobe/overview",
+        "cookbooks/task-apps/langprobe/gsm8k",
+        "cookbooks/task-apps/langprobe/heartdisease",
+        "cookbooks/task-apps/langprobe/iris"
+      ]
+    }
+  ]
+}
+```
+
+**File Structure** (in `docs/` directory):
+```
+docs/
+├── cookbooks/
+│   ├── overview.mdx                    # Cookbooks landing page
+│   └── task-apps/
+│       ├── polyglot.mdx                # Polyglot cookbook page
+│       └── langprobe/
+│           ├── overview.mdx            # LangProBe overview
+│           ├── gsm8k.mdx               # GSM8K example
+│           ├── heartdisease.mdx        # HeartDisease example
+│           └── iris.mdx                # Iris example
+```
+
+### MDX Page Template
+
+Each cookbook page follows this structure:
+
+```mdx
+---
+title: "Example Name"
+description: "Short description"
+---
+
+> **Full Example:** [View on GitHub](https://github.com/synth-laboratories/cookbooks/tree/main/code/task-apps/example-name){.button}
+
+## What you'll build
+
+1-2 sentence description of what this example demonstrates.
+
+## Prerequisites
+
+- Python 3.11+ (or language-specific requirements)
+- `synth-ai` package installed
+- API keys configured
+
+## Quick start
+
+```bash
+# Single command to run the example
+cd cookbooks/code/task-apps/example-name
+python main.py
+```
+
+## Key code
+
+Show only the critical parts (not full file):
+
+```python
+# Core snippet here
+```
+
+[View full example on GitHub](https://github.com/synth-laboratories/cookbooks/tree/main/code/task-apps/example-name)
+
+## Related docs
+
+- [Task Apps Guide](/task-app)
+- [Prompt Optimization](/prompt-optimization/overview)
+```
+
+### Cross-Linking Strategy
+
+1. **From conceptual docs** → Cookbooks:
+   - Add "Related Cookbooks" section at bottom of guide pages
+   - Link to relevant cookbook examples
+
+2. **From cookbooks** → Concepts:
+   - Add "Related docs" section at bottom
+   - Link back to conceptual guides
+
+3. **Cookbooks overview page**:
+   - Cards/list of all official cookbooks
+   - Grouped by category
+   - Searchable/filterable (if Mintlify supports)
+
+### Implementation Checklist
+
+For each cookbook in `code/`:
+
+- [ ] Create MDX page in `docs/cookbooks/`
+- [ ] Add to navigation in `docs/docs.json`
+- [ ] Include:
+  - [ ] Short narrative intro (what you'll build)
+  - [ ] Prerequisites
+  - [ ] Quick start command
+  - [ ] Key code snippets (not full file)
+  - [ ] "View full example on GitHub" button
+  - [ ] Cross-links to related concepts
+- [ ] Test that GitHub links work
+- [ ] Ensure code snippets match actual code in cookbooks repo
+
+### Navigation Integration Example
+
+Add to `docs/docs.json` under the "Train Your Model" tab:
+
+```json
+{
+  "tab": "Train Your Model",
+  "groups": [
+    // ... existing groups ...
+    {
+      "group": "Cookbooks",
+      "pages": [
+        "cookbooks/overview",
+        {
+          "group": "Task Apps",
+          "pages": [
+            "cookbooks/task-apps/polyglot",
+            {
+              "group": "LangProBe",
+              "pages": [
+                "cookbooks/task-apps/langprobe/overview",
+                "cookbooks/task-apps/langprobe/gsm8k",
+                "cookbooks/task-apps/langprobe/heartdisease",
+                "cookbooks/task-apps/langprobe/iris"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+### Cross-Linking from Existing Docs
+
+Update existing conceptual pages to link to cookbooks:
+
+**In `docs/task-app.mdx`:**
+```mdx
+## Related Cookbooks
+
+- [Polyglot Task Apps](/cookbooks/task-apps/polyglot) - Build Task Apps in Rust, Go, TypeScript, or Zig
+- [LangProBe Examples](/cookbooks/task-apps/langprobe/overview) - Benchmark task apps
+```
+
+**In `docs/prompt-optimization/overview.mdx`:**
+```mdx
+## Examples
+
+- [Banking77 with GEPA](/cookbooks/prompt-optimization/banking77-gepa)
+- [MIPRO Quickstart](/cookbooks/prompt-optimization/mipro-basic)
+```
+
+## Principles
+
+1. **One source of truth:** Cookbooks repo is canonical for examples
+2. **Docs are thin:** Narrative + snippets + GitHub link
+3. **Every example has README:** Short, code-centric, links to docs
+4. **Cross-linking:** Conceptual docs → Cookbooks, Cookbooks → Concepts
+5. **Versioning:** Pin `synth-ai` version in cookbooks examples
+
+## Next Steps (Immediate)
+
+1. ✅ Create this plan.txt
+2. [ ] Create `cookbooks/dev/task-apps/banking77-polyglot/` structure
+3. [ ] Migrate polyglot examples from `synth-ai/examples/polyglot/`
+4. [ ] Update polyglot README.md
+5. [ ] Test all language implementations
+6. [ ] Move to `cookbooks/code/task-apps/banking77-polyglot/` when ready
+7. [ ] Create Mintlify docs page
+8. [ ] Update synth-ai to point to cookbooks
+
+## Notes
+
+- Start with banking77 polyglot as it's the most complete multi-language example
+- Keep `dev/` folder for work-in-progress, move to `code/` when polished
+- Follow OpenAI Cookbook patterns: short READMEs, full code on GitHub, narrative in docs
+- Ensure all examples work standalone (no dependencies on synth-ai repo structure)
+

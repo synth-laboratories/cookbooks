@@ -18,8 +18,9 @@
 [prompt_learning]
 algorithm = "gepa"
 # task_app_url will be set by the in-process script to the Cloudflare tunnel URL
-task_app_url = "http://localhost:8114"
+task_app_url = "http://localhost:8102"
 task_app_id = "banking77"
+results_folder = "results"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Initial Prompt Pattern
@@ -35,12 +36,12 @@ name = "Banking77 Classification Pattern"
 
 [[prompt_learning.initial_prompt.messages]]
 role = "system"
-pattern = "You are an expert banking assistant. \n\n**Available Banking Intents:**\n{available_intents}\n\n**Task:**\nCall the `banking77_classify` tool with the `intent` parameter set to ONE of the intent labels listed above that best matches the customer query. The intent must be an exact match from the list."
+pattern = "You are an expert banking assistant that classifies customer queries into banking intents. Given a customer message, respond with exactly one intent label from the provided list using the `banking77_classify` tool."
 order = 0
 
 [[prompt_learning.initial_prompt.messages]]
 role = "user"
-pattern = "Customer Query: {query}\n\nClassify this query by calling the tool with the correct intent label from the list above."
+pattern = "Customer Query: {query}\n\nAvailable Intents:\n{available_intents}\n\nClassify this query into one of the above banking intents using the tool call."
 order = 1
 
 [prompt_learning.initial_prompt.wildcards]

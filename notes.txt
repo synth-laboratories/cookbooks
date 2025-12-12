@@ -1,0 +1,781 @@
+please explain to me how openai does its code cookbooks and puts them in its docs and then explain how I could add a cookbooks section to my synth-ai docs based on my brand new cookbooks repo that will house the examples from my current synth-laboratories/synth-ai repo notes https://docs.usesynth.ai/task-app https://github.com/synth-laboratories/cookbooks https://github.com/synth-laboratories/synth-ai/pulls basically give me guidelines on how to update docs, and moves tuff from synth-ai to cookbooks and then integrate the cookbooks to mitnlfiy docs showing code with links etc to closely emulate the experience people get from openai cookbooks
+
+
+Here’s a concrete “do this” plan that’s as close as possible to how OpenAI runs its Cookbook, adapted to **synth-ai**, your new **cookbooks** repo, and Mintlify docs.
+
+---
+
+## 1. Mirror the OpenAI Cookbook pattern
+
+OpenAI’s setup is basically:
+
+* **One GitHub repo** that holds all runnable examples + mini guides: `openai/openai-cookbook`. ([GitHub][1])
+* **A separate docs frontend** (cookbook.openai.com) that surfaces those examples as nice articles, each with code snippets and a **“view on GitHub”** link to the exact directory/file in the repo. ([OpenAI Cookbook][2])
+
+You already have:
+
+* `synth-laboratories/cookbooks` – currently just LICENSE (blank slate). ([GitHub][3])
+* `synth-laboratories/synth-ai` – SDK, plus existing examples and PRs evolving the API. ([GitHub][4])
+* Mintlify docs at `docs.usesynth.ai` (e.g., `task-app` page with a standard Mintlify sidebar + code blocks). ([docs.usesynth.ai][5])
+
+Goal:
+
+* **All runnable examples** live in `cookbooks/`.
+* **Docs site** shows curated snippets + buttons back to `cookbooks/`.
+* `synth-ai` just points to cookbooks instead of embedding big examples.
+
+---
+
+## 2. Shape the `cookbooks` repo
+
+Right now `cookbooks` just has a LICENSE, so you can set the structure however you want. ([GitHub][3])
+
+### 2.1. Create a topic-based folder layout
+
+Something like:
+
+```bash
+cookbooks/
+  prompt-optimization/
+    mipro-basic/
+  supervised-fine-tuning/
+    chat-sft-basic/
+  reinforcement-learning/
+    math-rl-qwen/
+  task-apps/
+    math-single-step/
+    polyglot-task-app/
+  integrations/
+    modal-deploy/
+    local-docker/
+  baselines-and-evals/
+    grade-school-math-baseline/
+```
+
+Guidelines:
+
+* **Folder name = topic**, subfolder = example slug.
+* Slugs should be URL-safe and match what you’ll use in docs (`math-rl-qwen`, `math-single-step`, etc.).
+
+### 2.2. Standardize each example directory
+
+For every example:
+
+```bash
+cookbooks/reinforcement-learning/math-rl-qwen/
+  README.md
+  main.py
+  requirements.txt      # only if needed beyond `synth-ai`
+  configs/
+    task.yaml           # optional
+  assets/               # optional
+```
+
+`README.md` template:
+
+````md
+# Train Qwen on math with RL
+
+Minimal RL run that improves a math-solving agent using Synth.
+
+## Prerequisites
+
+- Python 3.10+
+- `pip install synth-ai`
+- Set any required environment variables (model API keys, DB, etc.)
+
+## Run
+
+```bash
+python main.py
+````
+
+## Learn more
+
+Full walkthrough in the docs: [https://docs.usesynth.ai/cookbooks/reinforcement-learning/math-rl-qwen](https://docs.usesynth.ai/cookbooks/reinforcement-learning/math-rl-qwen)
+
+````
+
+Guidelines:
+
+- Keep **README short**; deep explanations go in Mintlify.
+- Always include:
+  - Prereqs  
+  - One clear “Run” command  
+  - Link back to the docs page  
+
+---
+
+## 3. Move examples from `synth-ai` → `cookbooks`
+
+You’ll do this example-by-example.
+
+### 3.1. For each existing example
+
+1. **Pick a topic + slug**  
+   - e.g. `task-apps/math-single-step`, `reinforcement-learning/math-rl-qwen`.
+
+2. **Create the new directory in `cookbooks/`**  
+   ```bash
+   mkdir -p cookbooks/task-apps/math-single-step
+````
+
+3. **Copy code from `synth-ai`**
+
+   * Move the core script(s) / notebook(s) and minimal config into the new directory.
+   * Trim any repo-specific cruft that’s only relevant inside `synth-ai` itself.
+
+4. **Write the `README.md`** using the template above.
+
+5. **In `synth-ai`, replace the old example with a pointer**
+
+   * If you had `synth_ai/examples/task_app_math/`, delete the heavy code and drop in:
+
+     ```md
+     # Examples moved to Cookbooks
+
+     This example now lives in the Synth Cookbooks repo:
+
+     https://github.com/synth-laboratories/cookbooks/tree/main/task-apps/math-single-step
+     ```
+
+6. **Update `synth-ai` root README**
+
+   * Add a short “Cookbooks” section:
+
+     ```md
+     ## Cookbooks (Examples)
+
+     For runnable examples, see the Synth Cookbooks:
+
+     - 📚 Docs index: https://docs.usesynth.ai/cookbooks
+     - 💻 Code: https://github.com/synth-laboratories/cookbooks
+     ```
+
+7. **Tests that depended on examples**
+
+   * If tests use these scripts as fixtures, either:
+
+     * Keep tiny “test-only” fixtures in `synth-ai/tests/fixtures/`, or
+     * Import shared logic from `synth-ai` and keep cookbooks purely as consumers.
+
+---
+
+## 4. Wire Cookbooks into Mintlify
+
+Your docs are Mintlify-based (see the `Powered by Mintlify` footer and the structured sidebar on `/task-app`). ([docs.usesynth.ai][5])
+
+You want:
+
+* A **Cookbooks** group in the sidebar.
+* One **MDX page per example**, each linking to the corresponding `cookbooks` directory.
+* Cross-links from conceptual docs (Task Apps / RL / Prompt Optimization) into relevant examples.
+
+### 4.1. Add a “Cookbooks” group in `mint.json` / `mintlify.json`
+
+Somewhere in your navigation config:
+
+```json
+{
+  "navigation": [
+    {
+      "group": "Guide",
+      "pages": ["/overview", "/task-app", "/prompt-optimization/overview"]
+    },
+    {
+      "group": "Cookbooks",
+      "pages": [
+        {
+          "name": "Prompt Optimization",
+          "pages": ["/cookbooks/prompt-optimization/mipro-basic"]
+        },
+        {
+          "name": "Supervised Fine-Tuning",
+          "pages": ["/cookbooks/sft/chat-sft-basic"]
+        },
+        {
+          "name": "Reinforcement Learning",
+          "pages": ["/cookbooks/reinforcement-learning/math-rl-qwen"]
+        },
+        {
+          "name": "Task Apps",
+          "pages": ["/cookbooks/task-apps/math-single-step"]
+        },
+        {
+          "name": "Integrations",
+          "pages": ["/cookbooks/integrations/modal-deploy"]
+        }
+      ]
+    }
+  ]
+}
+```
+
+Adjust paths to your actual file structure.
+
+### 4.2. One MDX page per cookbook example
+
+Create files like:
+
+```bash
+docs/cookbooks/task-apps/math-single-step.mdx
+docs/cookbooks/reinforcement-learning/math-rl-qwen.mdx
+```
+
+Example MDX page:
+
+````md
+---
+title: Math single-step task app
+description: Build and run a minimal task app for single-step math rollouts with Synth.
+tags: ["task-apps", "math", "fastapi"]
+---
+
+This example shows how to build a simple FastAPI-based task app for math problems, wire it into Synth's training harness, and expose the standard rollout endpoints.
+
+[View full example on GitHub](https://github.com/synth-laboratories/cookbooks/tree/main/task-apps/math-single-step){.button}
+
+## Quick start
+
+```bash
+pip install synth-ai
+export ENVIRONMENT_API_KEY=...
+python main.py
+````
+
+## Core snippet
+
+```python
+from synth_ai.task.server import ProxyConfig, RubricBundle, TaskAppConfig
+from synth_ai.task.tracing_utils import build_tracer_factory
+from synth_ai.tracing_v3.session_tracer import SessionTracer
+
+from my_math_app import (
+    build_dataset,
+    _base_task_info,
+    describe_taskset,
+    provide_task_instances,
+    rollout_executor,
+    OUTCOME_RUBRIC,
+    EVENTS_RUBRIC,
+    math_router,
+)
+
+def build_config() -> TaskAppConfig:
+    registry, dataset = build_dataset()
+    base_info = _base_task_info()
+    tracer_factory = build_tracer_factory(SessionTracer, enabled=True)
+
+    app_state = {"math_dataset": dataset}
+    if tracer_factory:
+        app_state["session_tracer_factory"] = tracer_factory
+
+    proxy = ProxyConfig(enable_openai=True, enable_groq=True)
+    return TaskAppConfig(
+        app_id="math-single-step",
+        name="Math Single Step Task",
+        base_task_info=base_info,
+        describe_taskset=lambda: describe_taskset(dataset),
+        provide_task_instances=lambda seeds: provide_task_instances(dataset, seeds),
+        rollout=rollout_executor,
+        dataset_registry=registry,
+        rubrics=RubricBundle(outcome=OUTCOME_RUBRIC, events=EVENTS_RUBRIC),
+        proxy=proxy,
+        routers=(math_router,),
+        app_state=app_state,
+    )
+```
+
+### 4.3. Cross-link from existing guides (e.g., Task App page)
+
+On a conceptual page like `/task-app`, add a “Cookbooks” section or callout.
+
+For example in `docs/task-app.mdx`:
+
+```md
+## Cookbooks
+
+Looking for a full, runnable example?
+
+- [Math single-step task app](/cookbooks/task-apps/math-single-step)
+- [Polyglot task app](/cookbooks/task-apps/polyglot-task-app)
+```
+
+This mirrors how OpenAI’s conceptual docs link down into specific Cookbook entries. ([OpenAI Cookbook][2])
+
+### 4.4. (Optional) Cookbooks index page with cards
+
+Add a `/cookbooks/index.mdx` (or just `/cookbooks.mdx`) that lists featured examples:
+
+```md
+---
+title: Cookbooks
+description: Runnable examples for Synth.
+---
+
+Use these examples as starting points for your own training runs.
+
+::cards
+- title: Math single-step task app
+  description: Minimal task app for math rollouts.
+  href: /cookbooks/task-apps/math-single-step
+- title: Train Qwen on math with RL
+  description: RL loop over a math reasoning dataset.
+  href: /cookbooks/reinforcement-learning/math-rl-qwen
+- title: MIPRO prompt optimization
+  description: Optimize prompts using Synth's prompt optimization loop.
+  href: /cookbooks/prompt-optimization/mipro-basic
+::
+```
+
+Then link this index from your main navigation or homepage.
+
+---
+
+## 5. Minimal “house rules” to emulate OpenAI’s Cookbook UX
+
+* **One source of truth for examples** = `cookbooks/` repo, not `synth-ai`. ([GitHub][1])
+* **Docs pages are thin**: short narrative + 1–2 core snippets + a big **GitHub button**.
+* **Every example directory has a README** with:
+
+  * 1‑liner goal
+  * prereqs
+  * single run command
+  * link back to its docs page
+* **Every docs page has a link back** to the exact example directory on GitHub.
+* **Cross-linking**:
+
+  * Conceptual guide → 1–3 relevant Cookbooks.
+  * Cookbooks → related concepts (“See also: Task Apps / RL Overview”).
+
+If you tell me the first specific example you’re migrating (e.g., a particular `task-app` or RL example from `synth-ai`), I can sketch the exact directory contents for `cookbooks/` and the corresponding MDX page text line-for-line.
+
+[1]: https://github.com/openai/openai-cookbook?utm_source=chatgpt.com "Examples and guides for using the OpenAI API"
+[2]: https://cookbook.openai.com/?utm_source=chatgpt.com "OpenAI Cookbook"
+[3]: https://github.com/synth-laboratories/cookbooks "GitHub - synth-laboratories/cookbooks: Demonstrating how to use Synth"
+[4]: https://github.com/synth-laboratories/synth-ai/pulls "Pull requests · synth-laboratories/synth-ai · GitHub"
+[5]: https://docs.usesynth.ai/task-app "Prepare Your Code for Training - Synth AI"
+
+
+Here’s a concrete playbook you can follow.
+
+---
+
+### 1. How OpenAI runs its Cookbook
+
+At a high level, OpenAI separates:
+
+* **Core docs** — API reference & conceptual guides at `platform.openai.com`
+* **Cookbook** — a separate “examples & guides” property (`cookbook.openai.com`) backed by its own repo. ([OpenAI Cookbook][1])
+
+Concretely:
+
+1. **Separate repo for examples**
+
+   * `openai/openai-cookbook` is its own repo. ([GitHub][2])
+   * It has:
+
+     * `articles/` — narrative guides (Markdown/MDX)
+     * `examples/` — runnable scripts / notebooks
+     * `images/` — supporting assets
+     * `registry.yaml` / `authors.yaml` — metadata for the site (titles, tags, slugs, authors). ([GitHub][2])
+
+2. **Site is generated from the repo**
+
+   * `cookbook.openai.com` is a separate site with topic filters (“Agents, Multimodal, Text, Guardrails, Optimization…”) that are essentially views over that registry. ([OpenAI Cookbook][1])
+   * A static-site build step:
+
+     * Reads `registry.yaml`
+     * Maps each `articles/*.md` file to a route
+     * Uses metadata (tags / topics) for the “Topics”, “Featured”, “Popular” lists.
+
+3. **Docs ↔️ Cookbook relationship**
+
+   * Core docs link **out** to cookbook guides (“See examples in the Cookbook”) for deeper, runnable examples.
+   * Cookbook pages link **back** to API docs and reference (“Read the full API docs”).
+
+4. **Patterns inside each cookbook page**
+
+   Typical page structure:
+
+   * Short “What you’ll build” intro
+   * Prereqs (API keys, installation)
+   * Step-by-step narrative, each step with a **small code block**
+   * A “full script / notebook” link: `View full example on GitHub` (under `examples/`).
+   * Sometimes multi-language blocks (`python`, `curl`, etc.).
+
+You don’t need to replicate the entire infra (registry, custom site) to mimic the *experience*—you mostly need:
+
+* A dedicated examples repo
+* A clean way to surface them in docs with:
+
+  * Topic grouping
+  * Step-by-step narratives
+  * “View full example” links
+
+---
+
+### 2. Design the `synth-laboratories/cookbooks` repo
+
+Right now your `cookbooks` repo is basically empty (only `LICENSE`). ([GitHub][3])
+Your main `synth-ai` repo already has `examples/` and user-facing snippets in the README. ([GitHub][4])
+
+**Goal:** make `cookbooks` the canonical home of runnable examples and demos.
+
+Suggested structure:
+
+```text
+cookbooks/
+  README.md
+  pyproject.toml / requirements.txt   # pinned deps: synth-ai, openai, etc.
+  examples/
+    task-apps/
+      math-single-step/
+        task_app.py
+        README.md
+      crafter-survival/
+        task_app.py
+        README.md
+    prompt-learning/
+      banking77-gepa/
+        config.toml
+        run_prompt_learning.py
+        README.md
+    rl/
+      qwen3-math/
+        train_rl.py
+        rollout_viz.ipynb
+  datasets/          # optional: dataset download helpers or links
+  images/            # diagrams used in docs
+  registry.yaml      # optional: metadata for future automation
+```
+
+**Per-example directory layout:**
+
+```text
+examples/<area>/<slug>/
+  README.md         # short narrative: what this example shows
+  main.py           # or task_app.py, train.py, etc.
+  config.toml       # if applicable
+  requirements.txt  # optional, if it differs from repo root
+```
+
+`README.md` should be short and code-centric; main narrative will live in Mintlify, but the README is nice when browsing GitHub.
+
+---
+
+### 3. Migration plan: from `synth-ai` → `cookbooks`
+
+Your `synth-ai` repo is currently both SDK source + examples (`examples/`, some example snippets in README, etc.). ([GitHub][4])
+
+**Objective:** keep `synth-ai` lean (library + tiny getting-started snippets), and move heavier “how-to” examples into `cookbooks`.
+
+#### Step 1 – Inventory examples
+
+In `synth-ai`:
+
+* Walk `examples/`, `fixtures/`, and any demo-ish scripts under `scripts/` or `synth_ai/` that are user-facing (e.g. demo RL training, task apps, prompt-learning configs). ([GitHub][4])
+* Decide which ones are:
+
+  * **Core examples** → move to `cookbooks`
+  * **Internal / tests** → keep in `synth-ai` or tests only
+
+Make a simple mapping doc (even in a comment or issue) like:
+
+```text
+synth-ai/examples/baseline/banking77_baseline.py
+  → cookbooks/examples/prompt-learning/banking77-gepa/main.py
+
+synth-ai/examples/task_apps/math_single_step.py
+  → cookbooks/examples/task-apps/math-single-step/task_app.py
+```
+
+#### Step 2 – Physically move the code
+
+For each selected example:
+
+1. **Copy** the code into the matching `cookbooks/examples/...` directory.
+2. Clean up:
+
+   * Ensure imports use `synth_ai` (installed) instead of relative `..` imports.
+   * Parameterize anything that’s currently hard-coded to your environment (paths, API keys).
+
+In `cookbooks`, add a simple top-level `README.md`:
+
+````md
+# Synth Cookbooks
+
+Examples demonstrating how to use Synth AI for:
+
+- Task apps (FastAPI wrappers)
+- Prompt learning & GEPA / MIPRO
+- RL training & baselines
+
+To run an example:
+
+```bash
+git clone https://github.com/synth-laboratories/cookbooks
+cd cookbooks/examples/task-apps/math-single-step
+uv sync  # or pip install -r requirements.txt
+python task_app.py
+````
+
+````
+
+#### Step 3 – Leave stubs + links in `synth-ai`
+
+In `synth-ai`, don’t nuke everything—leave pointers.
+
+- In `README.md`, change the “Examples / Baselines” section to something like:
+
+```md
+For full runnable examples (task apps, baselines, prompt learning), see the
+[Synth Cookbooks](https://github.com/synth-laboratories/cookbooks).
+````
+
+* In `examples/`:
+
+  * Either:
+
+    * Leave a `README.md` that says “Examples moved to `synth-laboratories/cookbooks`”
+    * Or keep only the **most minimal** quickstart example; everything else lives in `cookbooks`.
+
+This mirrors the “SDK repo + cookbook repo” separation OpenAI uses. ([GitHub][2])
+
+---
+
+### 4. Add a “Cookbooks” section to your Mintlify docs
+
+Your docs at `docs.usesynth.ai` are clearly Mintlify-style, with a side-nav that already has “Examples” slots under several sections (Prompt Optimization, SFT, RL). ([Synth AI][5])
+
+You want those “Examples / Cookbooks” nodes to surface content from your `cookbooks` repo.
+
+#### Step 4.1 – Information architecture
+
+Make a top-level “Cookbooks” landing page + per-topic subpages, roughly:
+
+* **Cookbooks**
+
+  * Task Apps
+
+    * Build a math reasoning task app
+    * Polyglot task app
+  * Prompt Learning
+
+    * Banking77 with GEPA
+    * MIPRO quickstart
+  * RL
+
+    * Qwen3-0.6B math training
+    * Crafter survival task
+
+You can either:
+
+* Create a **dedicated “Cookbooks” section** in the nav, or
+* Fill the existing `Examples` items under each main section with these cookbook pages. ([Synth AI][5])
+
+#### Step 4.2 – Mintlify nav config
+
+In your docs repo (whatever backs `docs.usesynth.ai`), you’ll have a `mint.json` or `mint.config.*` file describing navigation.
+
+Conceptually, add something like:
+
+```json
+{
+  "name": "Cookbooks",
+  "pages": [
+    { "name": "Overview", "path": "/cookbooks/overview" },
+    {
+      "name": "Task Apps",
+      "pages": [
+        { "name": "Math Reasoning Task App", "path": "/cookbooks/task-apps/math-single-step" },
+        { "name": "Crafter Survival Task App", "path": "/cookbooks/task-apps/crafter-survival" }
+      ]
+    },
+    {
+      "name": "Prompt Learning",
+      "pages": [
+        { "name": "Banking77 with GEPA", "path": "/cookbooks/prompt-learning/banking77-gepa" }
+      ]
+    }
+  ]
+}
+```
+
+…and/or wire those same pages into the existing `Examples` slots under:
+
+* Prompt Optimization → Examples
+* Supervised Fine-Tuning → Examples
+* Reinforcement Learning → Examples ([Synth AI][5])
+
+#### Step 4.3 – Structure of a cookbook doc page
+
+Each Mintlify page should be a **narrative wrapper** around one example directory in `cookbooks`.
+
+Example (for `math-single-step` task app):
+
+````md
+---
+title: "Math Single-Step Task App"
+description: "Build and deploy a math reasoning task app using Synth AI."
+---
+
+> This example lives in the
+> [`cookbooks` repo](https://github.com/synth-laboratories/cookbooks/tree/main/examples/task-apps/math-single-step).
+
+## What you’ll build
+
+A FastAPI task app that exposes Synth-compatible routes for single-step math reasoning.
+
+## Prerequisites
+
+- Python 3.11+
+- `uv` or `pip`
+- A Synth account and API keys configured
+
+```bash
+git clone https://github.com/synth-laboratories/cookbooks
+cd cookbooks/examples/task-apps/math-single-step
+uv sync  # or pip install -r requirements.txt
+````
+
+## Key code
+
+```python
+from synth_ai.task.server import (
+    ProxyConfig,
+    RubricBundle,
+    TaskAppConfig,
+)
+
+from synth_ai.task.tracing_utils import (
+    build_tracer_factory,
+    resolve_sft_output_dir,
+    resolve_tracing_db_url,
+    tracing_env_enabled,
+)
+
+from synth_ai.tracing_v3.session_tracer import SessionTracer
+
+def build_config() -> TaskAppConfig:
+    registry, dataset = build_dataset()
+    base_info = _base_task_info()
+    tracing_enabled = tracing_env_enabled()
+    tracer_factory = build_tracer_factory(
+        SessionTracer,
+        enabled=tracing_enabled,
+        db_url=resolve_tracing_db_url(),
+    )
+    # ...
+```
+
+Then:
+
+* Show **only the critical parts** in-doc (config builder, rollout executor, routes).
+* Link to “View full example on GitHub” for the whole file:
+
+```md
+[View full example on GitHub](https://github.com/synth-laboratories/cookbooks/blob/main/examples/task-apps/math-single-step/task_app.py)
+```
+
+This matches what Cookbook pages do: short, focused snippets + full script link. ([OpenAI Cookbook][1])
+
+#### Step 4.4 – Re-use snippets you already have
+
+Your current docs already show substantial code snippets for task app anatomy (`build_config`, endpoint specs, etc.). ([Synth AI][5])
+
+You can:
+
+* Move the **canonical implementation** into `cookbooks/examples/task-apps/math-single-step/task_app.py`.
+* Keep the docs snippets, but ensure they exactly match the code in `cookbooks` (copy from the example whenever updating).
+* Add a little banner at the top of those pages:
+
+```md
+> Full runnable example:
+> [Math Single-Step Task App Cookbook](../cookbooks/task-apps/math-single-step)
+```
+
+---
+
+### 5. Cross-linking to emulate the OpenAI experience
+
+To really match the OpenAI feel:
+
+1. **Top-level Cookbooks page**
+
+   * Brief explanation of what a “cookbook” is for Synth.
+   * Cards or lists grouped by topic (“Task Apps”, “Prompt Learning”, “RL”).
+
+2. **Cross-links from core docs**
+
+   * At the bottom of conceptual pages (like “Prepare Your Code for Training”), add:
+
+     ```md
+     ## Related cookbooks
+
+     - [Math Single-Step Task App](../cookbooks/task-apps/math-single-step)
+     - [Polyglot Task App](../cookbooks/task-apps/polyglot)
+     ```
+
+3. **Cross-links back from cookbooks**
+
+   * At the bottom of each cookbook page, add:
+
+     ```md
+     ## Related docs
+
+     - [Prepare Your Code for Training](/task-app)
+     - [Train Your Model](/train)
+     ```
+
+4. **GitHub links everywhere**
+
+   * Each cookbook page:
+
+     * “View example on GitHub”
+     * “Browse all cookbooks” → `https://github.com/synth-laboratories/cookbooks`
+
+5. **Versioning + stability**
+
+   * Pin `synth-ai` version in `cookbooks` (e.g. `synth-ai==0.2.25`) so examples don’t silently break.
+   * When you release a major SDK version, run through the cookbooks, update where necessary, and bump the pinned version.
+
+---
+
+### 6. Concrete checklist
+
+If you want a minimal “do this next” list:
+
+1. **In `cookbooks` repo**
+
+   * Add `README.md`, `examples/` scaffold, and `pyproject.toml` / `requirements.txt`.
+   * Move one flagship example from `synth-ai/examples` (e.g. math RL or math task app) into `examples/...`.
+
+2. **In `synth-ai` repo**
+
+   * Replace that example with a pointer to `cookbooks`.
+   * Update `README.md` “Examples” section to link to cookbooks.
+
+3. **In docs repo**
+
+   * Add a `Cookbooks` section to nav (`mint.json` / config).
+   * Create a `cookbooks/overview` page.
+   * Create 1–2 cookbook pages that wrap the moved examples, with:
+
+     * Short intro
+     * Setup commands
+     * Key code snippets
+     * “View full example on GitHub” links.
+
+4. **Iterate**
+
+   * Gradually move every user-facing example from `synth-ai` to `cookbooks`.
+   * For each, add a matching Mintlify page and cross-links from relevant conceptual docs.
+
+That gets you very close to the OpenAI Cookbook experience, but with minimal infra and maximum reuse of what you already have.
+
+[1]: https://cookbook.openai.com/ "OpenAI Cookbook"
+[2]: https://github.com/openai/openai-cookbook "GitHub - openai/openai-cookbook: Examples and guides for using the OpenAI API"
+[3]: https://github.com/synth-laboratories/cookbooks "GitHub - synth-laboratories/cookbooks: Demonstrating how to use Synth"
+[4]: https://github.com/synth-laboratories/synth-ai "GitHub - synth-laboratories/synth-ai: Managed Agent Posttraining"
+[5]: https://docs.usesynth.ai/task-app "Prepare Your Code for Training - Synth AI"
