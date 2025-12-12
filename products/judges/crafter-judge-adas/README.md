@@ -4,9 +4,10 @@ This cookbook shows how to **discover a judge graph for Crafter** using
 **Judge‑ADAS** (Graph‑GEPA + gold labels).
 
 We:
-1. Run real Crafter rollouts to collect **v3 traces** with event + outcome rewards.
-2. Treat those outcome rewards as a **gold set**.
-3. Evolve a **judge graph** that matches the gold scores.
+1. Run real Crafter rollouts to collect **v3 traces** with event rewards.
+2. Compute a gold **outcome score based only on achievement count** and store it as an outcome reward.
+3. Convert traces → an ADAS‑style dataset (trace → gold score).
+4. Evolve a **judge graph** that matches the gold scores, and also emits rich feedback.
 
 > Important: Graph YAML/spec is proprietary.  
 > This workflow never asks you to publish or commit YAML. If you want to share a judge,
@@ -50,17 +51,23 @@ uv run python backend/graphs/gepa_integration/tests/judge_demo_crafter_collect_t
 Outputs (local only):
 - `traces/judge_demo/crafter_gold_labels.json`
 - `traces/judge_demo/crafter_gold_traces.jsonl`
+- `traces/judge_demo/crafter_judge_adas_dataset.json`
 
 Each trace includes:
 - full v3 `event_history`
 - event rewards from environment steps
-- a gold **outcome reward** in `[0,1]`
+- a gold **outcome reward** in `[0,1]` derived from achievements only
 
 ---
 
 ## 2) Run Judge‑ADAS to discover a judge graph
 
-Now evolve a judge that matches those gold scores:
+Now evolve a judge that matches those gold scores.
+
+The discovered judge is richer than our achievement‑only baselines:
+- It predicts an outcome `score` matching gold.
+- It emits **numeric event‑level rewards** (`event_rewards`) per turn.
+- It provides **text feedback** for both outcome and event rewards.
 
 ```bash
 cd monorepo
@@ -113,4 +120,3 @@ curl -L http://localhost:8000/graph-judge/graphs/<graph_id>/export.txt \
 ```
 
 That `.txt` is the only supported public artifact.
-
