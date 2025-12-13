@@ -1,0 +1,42 @@
+# Crafter Verifier Graph Calibration
+# Evolves a judge graph to evaluate Crafter game agent traces
+
+[graph_optimization]
+dataset_name = "crafter_verifier_calibration"
+graph_type = "verifier"         # Judging traces, not solving tasks
+graph_structure = "dag"         # Multi-step: aspects → aggregation
+
+topology_guidance = """
+Build a DAG with:
+1. An early node to digest raw trace data and score multiple aspects
+   (survival, exploration, achievement_progress, efficiency)
+2. A final node to combine aspect scores into an overall score
+The graph should output: {"score": float, "reasoning": string, "sub_scores": dict}
+"""
+
+# Task context for initial graph generation
+task_description = "Evaluate Crafter game agent execution traces based on survival, exploration, achievements, and efficiency."
+
+input_schema = { trace = "object", trace_id = "string" }
+output_schema = { score = "number", reasoning = "string", sub_scores = "object" }
+
+[graph_optimization.proposer]
+model = "gpt-4.1"
+temperature = 0.7
+
+[graph_optimization.population]
+num_generations = 3
+children_per_generation = 2
+
+[graph_optimization.evaluation]
+# Trace indices as seeds
+seeds = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+
+[graph_optimization.limits]
+max_spend_usd = 20.0
+timeout_seconds = 1800
+
+# Scoring: LLM judge with rubrics built from gold scores
+scoring_strategy = "rubric"
+judge_model = "gpt-4o-mini"
+
