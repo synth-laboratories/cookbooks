@@ -1,0 +1,31 @@
+[context_learning]
+# Alpha-only Context Learning example for Codex/CTF task apps.
+
+# Set via env in CI or replace inline.
+task_app_url = "{CTX_LEARNING_TASK_APP_URL}"
+
+evaluation_seeds = [0, 1, 2]
+
+[context_learning.environment]
+# Baseline scripts (start small; Context Learning will improve them).
+preflight_script = """
+set -euo pipefail
+echo "Baseline preflight for CTF"
+
+# Example: install tools your CTF needs
+# sudo apt-get update
+# sudo apt-get install -y ripgrep jq
+"""
+
+postflight_script = """
+echo "Baseline postflight"
+"""
+
+[context_learning.algorithm]
+initial_population_size = 4
+num_generations = 3
+
+[context_learning.metadata]
+experiment_name = "ctf_context_learning_alpha"
+benchmark_name = "codex-ctf"
+

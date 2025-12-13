@@ -1,0 +1,30 @@
+# HotpotQA Policy Graph Optimization
+# Evolves a multi-step reasoning graph for multi-hop QA
+
+[graph_optimization]
+algorithm = "graph_gepa"
+dataset_name = "hotpotqa"
+graph_type = "policy"           # Solving tasks, not judging
+graph_structure = "dag"         # Linear pipeline: reasoning → parsing
+topology_guidance = "Use a reasoning node that performs chain-of-thought analysis, then a parsing node to extract the final answer."
+
+# Scoring configuration
+scoring_strategy = "rubric"
+judge_model = "qwen/qwen3-32b"
+
+[graph_optimization.proposer]
+model = "gpt-5-mini"
+temperature = 0.7
+
+[graph_optimization.evolution]
+num_generations = 1
+children_per_generation = 3
+
+[graph_optimization.seeds]
+# 20 seeds: feedback (first half) + pareto scoring (second half)
+train = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+validation = [100, 101, 102, 103, 104]
+
+[graph_optimization.limits]
+max_spend_usd = 10.0
+timeout_seconds = 1800
